@@ -9,6 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const { createPlatformClient } = require('./security/platform');
 const { readCookie } = require('./security/requests');
+const { selectReportAccount } = require('./security/accounts');
 const { createIpcRegistrar } = require('./security/ipc');
 const { pathToFileURL } = require('node:url');
 const UI_DOCUMENT = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
@@ -30,8 +31,24 @@ if (process.env.KICKTERINO_DATA) app.setPath('userData', process.env.KICKTERINO_
 const PARTITION = 'persist:kick';
 const apiClient = createPlatformClient('kick', () => session.fromPartition(PARTITION));
 let sessionTransition = false;
+let verifiedAccountGeneration = -1;
 function assertSession(generation) {
   if (sessionTransition || apiClient.generation !== generation) throw new Error('Session changed');
+}
+
+function resetAccountRuntime() {
+  storeSequence = null;
+  const windows = [...storeWindows.values()];
+  storeWindows.clear();
+  for (const win of windows) if (!win.isDestroyed()) win.destroy();
+  for (const slug of [...watchers.keys()]) stopWatcher(slug);
+  status.clear();
+}
+
+function adoptVerifiedAccount(account) {
+  if (selectReportAccount(config, account)) resetAccountRuntime();
+  verifiedAccountGeneration = apiClient.generation;
+  configDirty = true;
 }
 const KICK = 'https://kick.com';
 const POLL_MS = 60 * 1000;
@@ -124,11 +141,13 @@ function setupSession() {
         || (HIDDEN_SKIP.has(details.resourceType) && isHiddenWatcher(details.webContents)),
     });
   });
-  ses.cookies.on('changed', (_event, cookie) => {
+  ses.cookies.on('changed', (_event, cookie, _cause, removed) => {
     if (cookie.name !== 'session_token' || !['kick.com', 'www.kick.com'].includes(cookie.domain.replace(/^\./, ''))) return;
     apiClient.invalidate();
+    verifiedAccountGeneration = -1;
     username = null;
     loggedIn = false;
+    if (removed) resetAccountRuntime();
   });
 }
 
@@ -222,6 +241,7 @@ function openStore(slug, title = `Pontos — ${slug}`) {
   win.loadURL(`${KICK}/popout/${slug}/chat`);
   win.on('page-title-updated', (e) => e.preventDefault()); // mantém o "(2 de 4)" do modo antes de dormir
   win.on('closed', () => {
+    if (storeWindows.get(slug) !== win) return;
     storeWindows.delete(slug);
     refreshChannel(slug).then(() => send('status', snapshot())).catch(() => {});
     if (storeSequence && storeSequence.current === slug) openNextStore();
@@ -549,6 +569,7 @@ async function refreshChannel(slug) {
     assertSession(generation);
     if (code === 200 && json) {
       const p = json.data ? json.data.points : json.points;
+      if (verifiedAccountGeneration !== generation) { s.points = null; s.bonusTier = null; }
       if (typeof p === 'number') {
         // Ganho de assistir (gastos na loja fazem o saldo cair e não contam).
         if (s.points != null && p > s.points) {
@@ -857,7 +878,11 @@ async function fetchUsername() {
       const { status: code, json } = await kickFetch(p);
       assertSession(generation);
       const name = code === 200 && json && (json.username || (json.user && json.user.username));
-      if (name) return String(name);
+      if (name) {
+        const id = String(json.id || (json.user && json.user.id) || '');
+        adoptVerifiedAccount(/^[1-9][0-9]*$/.test(id) ? 'id:' + id : 'login:' + String(name).toLowerCase());
+        return String(name);
+      }
     } catch {}
     assertSession(generation);
   }
@@ -1079,8 +1104,8 @@ handleIpc('logout', async () => {
   apiClient.suspend();
   try {
     apiWin.webContents.stop();
-    for (const slug of [...watchers.keys()]) stopWatcher(slug);
-    for (const win of storeWindows.values()) if (!win.isDestroyed()) win.close();
+    resetAccountRuntime();
+    verifiedAccountGeneration = -1;
     const ses = session.fromPartition(PARTITION);
     await ses.clearStorageData();
     await ses.clearCache();
