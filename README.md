@@ -1,68 +1,53 @@
 # Kickterino
 
-Cliente de chat para a Kick no estilo do [Chatterino](https://chatterino.com/), feito para a comunidade do PokeIdle. Ele mantém 2 lives em segundo plano, com o mínimo de memória e internet, para acumular pontos do canal e comprar bônus.
+Independent security-maintenance fork of [ViinniSantoos/kickterino](https://github.com/ViinniSantoos/kickterino), originally created by VinniiSaantos. The original MIT license, copyright and Git history are preserved.
 
-**[Baixar para Windows](https://viinnisantoos.github.io/kickterino/)**
+Kickterino is an Electron client for Kick chat and PokeIdle channel-point tracking. It retains the existing interface, channel rewards, background video playback, notifications and one-account session model.
 
-![Interface do Kickterino](docs/app.png)
+## Security-maintenance changes
 
-## Recursos
+- Application API queries use the platform session from Electron's main process. They no longer inject query tokens into a navigable page.
+- Credential-bearing requests have fixed destinations, reject redirects, abort on timeout/session replacement and limit response size.
+- Every application IPC command authenticates the exact local UI main frame and validates its arguments before side effects.
+- The preload bridge is unavailable to remote pages and child frames; the privileged UI cannot navigate to remote sites or open remote popups.
+- Automatic update checking, downloading and installation are disabled. The fork metadata points to this repository; there is no signed automatic-update channel yet.
+- Known vulnerable minimatch build-tool versions are replaced with a version-qualified override that preserves unrelated legacy versions.
 
-- **Chat em abas** de vários canais, com envio de mensagens e aviso de resgates.
-- **Painel de pontos** com saldo, status e ganho de cada canal.
-- **Foco em bônus:** as vagas vão para os canais mais perto de 300 pontos, depois 500, 1.000 e cada milhar seguinte.
-- **Modo leve:** lives ocultas em 160p, sem som, sem imagens e sem anúncios.
-- **Modo 24/7:** fica na bandeja, inicia com o Windows e se recupera de quedas e de suspensão.
-- **Avisos de bônus** quando um canal alcança 300, 500 ou 1.000 pontos.
-- **Atualização automática** pelo GitHub Releases.
+The platform's own web pages still handle their normal website login and cookies. These changes do not certify the application or its external services as vulnerability-free.
 
-## Como funciona
+## Run and test from source
 
-O app é feito em Electron e não tem servidor próprio.
+Use Node.js 22.13 or newer (Node.js 24 is used for validation).
 
-- Cada live é a página real da Kick, aberta numa janela invisível e sem som.
-- Uma janela oculta em `kick.com` consulta status e saldo, usando a sessão da própria pessoa.
-- O protocolo DevTools limita a live à menor qualidade e lê o chat da conexão em tempo real que a página da Kick já abre.
-- A cada minuto, o app confere o estado dos canais e reorganiza as vagas.
-
-## O que os testes mostraram
-
-- A Kick conta cerca de 2 lives por vez por conta. Com 2, 3, 4 ou 10 lives abertas, o ganho total foi o mesmo.
-- O limite vale entre aparelhos: celular e TV disputam as mesmas 2 vagas com o app.
-- A primeira contagem leva cerca de 6–7 min depois que a live abre. Depois, são +10 a cada ~5–6 min, ou cerca de 220 pontos por hora.
-- O painel tem um **teste de limite**, que refaz essa medição na sua conta.
-
-## Segurança da conta
-
-- O login é feito na própria página da Kick, Google, Apple ou Discord. O app não lê nem guarda a senha.
-- Não há servidor do Kickterino: a sessão fica só no seu PC, com os cookies criptografados pelo Windows.
-- Só a Kick e as páginas de login abrem dentro do app. Outros sites são bloqueados, e nenhuma página acessa câmera, microfone ou localização.
-- **Sair da conta** apaga do app todos os dados de login, mantendo a lista de canais e as preferências.
-- Baixe só do site ou dos Releases deste repositório, e nunca envie a pasta de dados do app para ninguém.
-
-## Desenvolvimento
-
-Requer Node.js.
-
-```bash
-npm install
+```sh
+npm ci
+npm test
+npm run test:electron
 npm start
 ```
 
-Para gerar o instalador e a versão portátil em `dist/`:
+Electron 45 downloads its binary on first use when it is not already installed. The optional `test:electron` command runs a controlled local transport fixture using fictitious credentials and a temporary browser profile. On Linux only, its headless fixture disables the Chromium sandbox to accommodate restricted test environments; product startup keeps the existing sandbox settings.
 
-```bash
-npm run dist
+For a local packaging check without publishing:
+
+```sh
+npm run dist:linux -- --dir --publish never
+# On Windows:
+npm run dist -- --publish never
 ```
 
-## Limitações
+The packaging configuration includes the main-process security modules. Tests exercise request routing, redirect refusal, timeouts, session invalidation, IPC authentication, argument bounds, preload exposure and updater-disabled startup.
 
-- Funciona só no Windows.
-- O saldo e o envio de mensagens usam endpoints internos da Kick, que podem mudar sem aviso.
-- O chat só aparece nos canais que estão sendo assistidos.
-- O app ainda não tem assinatura digital, então o Windows pode exibir um aviso na instalação.
-- Projeto independente, sem ligação com a Kick ou o PokeIdle. Assistir sem estar presente pode ir contra os termos de uso da Kick; use por sua conta e risco.
+## Distribution and session compatibility
 
-## Licença
+This maintenance change does not publish reviewed installers or releases. Downloads from the original author's project do not contain the fork's changes. Update maintained builds manually from reviewed source until a separate trusted signing/update policy is established.
 
-[MIT](LICENSE)
+The existing application ID, profile directories and visible name are retained. Resolve installer coexistence and final distribution identity before installing a fork build alongside the original. Do not commit cookies, tokens, browser profiles or personal session data.
+
+The partner list remains public configuration fetched from the original author's GitHub Pages URL with the existing slug validation. It is separate from application updates.
+
+Live Kick login, live point accrual and Windows UI behavior require manual validation with the maintained build. Controlled tests with fake sessions do not establish those behaviors.
+
+## Attribution
+
+Original project: [ViinniSantoos/kickterino](https://github.com/ViinniSantoos/kickterino). Original author: VinniiSaantos. Maintenance fork: [jggomes11/kickterino](https://github.com/jggomes11/kickterino). License: [MIT](LICENSE).
