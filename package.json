@@ -2,19 +2,18 @@
   "name": "kickterino",
   "productName": "Kickterino",
   "version": "0.3.0",
-  "description": "Cliente multi-chat da Kick (estilo Chatterino) que mantém você assistindo várias lives para acumular pontos do canal.",
+  "description": "Cliente multi-chat da Kick (estilo Chatterino) que mant\u00e9m voc\u00ea assistindo v\u00e1rias lives para acumular pontos do canal.",
   "author": "VinniiSaantos",
   "license": "MIT",
-  "homepage": "https://viinnisantoos.github.io/kickterino/",
-  "repository": "github:ViinniSantoos/kickterino",
+  "homepage": "https://github.com/jggomes11/kickterino#readme",
+  "repository": "github:jggomes11/kickterino",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win",
-    "dist:linux": "electron-builder --linux"
-  },
-  "dependencies": {
-    "electron-updater": "^6.6.2"
+    "dist:linux": "electron-builder --linux",
+    "test": "node --test --test-isolation=none tests/*.test.cjs",
+    "test:electron": "node scripts/test-electron.cjs"
   },
   "devDependencies": {
     "electron": "45.2.1",
@@ -30,7 +29,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "ViinniSantoos",
+        "owner": "jggomes11",
         "repo": "kickterino"
       }
     ],
@@ -38,7 +37,8 @@
       "main.js",
       "preload.js",
       "renderer/**/*",
-      "build/icon.png"
+      "build/icon.png",
+      "security/**/*"
     ],
     "electronFuses": {
       "enableCookieEncryption": true,
@@ -85,5 +85,11 @@
       "artifactName": "Kickterino-linux.deb"
     }
   },
-  "desktopName": "kickterino.desktop"
+  "desktopName": "kickterino.desktop",
+  "overrides": {
+    "minimatch@>=7.0.0 <11.0.1": "11.0.1"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
 }

@@ -5,9 +5,14 @@
 const {
   app, BrowserWindow, dialog, ipcMain, session, Tray, Menu, Notification, nativeImage, powerSaveBlocker, powerMonitor, net,
 } = require('electron');
-const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
+const { createPlatformClient } = require('./security/platform');
+const { readCookie } = require('./security/requests');
+const { selectReportAccount } = require('./security/accounts');
+const { createIpcRegistrar } = require('./security/ipc');
+const { pathToFileURL } = require('node:url');
+const UI_DOCUMENT = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
 
 // Mantém vídeos rodando mesmo com janelas ocultas/minimizadas.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -24,6 +29,27 @@ app.commandLine.appendSwitch('js-flags', '--max-semi-space-size=1');
 if (process.env.KICKTERINO_DATA) app.setPath('userData', process.env.KICKTERINO_DATA);
 
 const PARTITION = 'persist:kick';
+const apiClient = createPlatformClient('kick', () => session.fromPartition(PARTITION));
+let sessionTransition = false;
+let verifiedAccountGeneration = -1;
+function assertSession(generation) {
+  if (sessionTransition || apiClient.generation !== generation) throw new Error('Session changed');
+}
+
+function resetAccountRuntime() {
+  storeSequence = null;
+  const windows = [...storeWindows.values()];
+  storeWindows.clear();
+  for (const win of windows) if (!win.isDestroyed()) win.destroy();
+  for (const slug of [...watchers.keys()]) stopWatcher(slug);
+  status.clear();
+}
+
+function adoptVerifiedAccount(account) {
+  if (selectReportAccount(config, account)) resetAccountRuntime();
+  verifiedAccountGeneration = apiClient.generation;
+  configDirty = true;
+}
 const KICK = 'https://kick.com';
 const POLL_MS = 60 * 1000;
 const PLAYER_CHECK_MS = 30 * 1000;
@@ -115,6 +141,14 @@ function setupSession() {
         || (HIDDEN_SKIP.has(details.resourceType) && isHiddenWatcher(details.webContents)),
     });
   });
+  ses.cookies.on('changed', (_event, cookie, _cause, removed) => {
+    if (cookie.name !== 'session_token' || !['kick.com', 'www.kick.com'].includes(cookie.domain.replace(/^\./, ''))) return;
+    apiClient.invalidate();
+    verifiedAccountGeneration = -1;
+    username = null;
+    loggedIn = false;
+    if (removed) resetAccountRuntime();
+  });
 }
 
 // Deixa só a menor qualidade (160p) na lista de qualidades da live — o mesmo que escolher 160p no player.
@@ -147,11 +181,14 @@ function isTrustedUrl(url) {
 }
 
 app.on('web-contents-created', (_e, wc) => {
-  wc.setWindowOpenHandler(({ url }) => (isTrustedUrl(url) ? {
+  wc.setWindowOpenHandler(({ url }) => (wc !== mainWin?.webContents && isTrustedUrl(url) ? {
     action: 'allow',
-    overrideBrowserWindowOptions: { width: 520, height: 720, autoHideMenuBar: true, webPreferences: { partition: PARTITION } },
+    overrideBrowserWindowOptions: { width: 520, height: 720, autoHideMenuBar: true, webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false } },
   } : { action: 'deny' }));
-  const guard = (details) => { if (details.isMainFrame && !isTrustedUrl(details.url)) details.preventDefault(); };
+  const guard = (details) => {
+    if (wc === mainWin?.webContents ? (!details.isMainFrame || details.url !== UI_DOCUMENT) : (details.isMainFrame && !isTrustedUrl(details.url))) details.preventDefault();
+  };
+  wc.on('will-frame-navigate', guard);
   wc.on('will-navigate', guard);
   wc.on('will-redirect', guard);
 });
@@ -165,7 +202,7 @@ const withTimeout = (promise, ms) => Promise.race([
 
 function loadApi(url) {
   apiReady = new Promise((resolve) => apiWin.webContents.once('did-finish-load', resolve));
-  apiWin.loadURL(url);
+  apiWin.loadURL(url).catch(() => {});
   return apiReady;
 }
 
@@ -204,8 +241,9 @@ function openStore(slug, title = `Pontos — ${slug}`) {
   win.loadURL(`${KICK}/popout/${slug}/chat`);
   win.on('page-title-updated', (e) => e.preventDefault()); // mantém o "(2 de 4)" do modo antes de dormir
   win.on('closed', () => {
+    if (storeWindows.get(slug) !== win) return;
     storeWindows.delete(slug);
-    refreshChannel(slug).then(() => send('status', snapshot()));
+    refreshChannel(slug).then(() => send('status', snapshot())).catch(() => {});
     if (storeSequence && storeSequence.current === slug) openNextStore();
   });
   storeWindows.set(slug, win);
@@ -225,30 +263,12 @@ function openNextStore() {
 }
 
 async function sessionToken() {
-  const cookies = await session.fromPartition(PARTITION).cookies.get({ url: KICK, name: 'session_token' });
-  return cookies[0] ? decodeURIComponent(cookies[0].value) : '';
+  return readCookie(session.fromPartition(PARTITION), KICK, 'session_token');
 }
 
-// Faz um fetch de dentro da página kick.com (mesmos cookies/headers de um navegador normal).
-async function kickFetch(apiPath, { method = 'GET', body } = {}) {
-  await withTimeout(apiReady, 20 * 1000);
-  const token = await sessionToken();
-  const code = `(async () => {
-    const xsrf = decodeURIComponent((document.cookie.match(/XSRF-TOKEN=([^;]+)/) || [])[1] || '');
-    const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json' };
-    const token = ${JSON.stringify(token)};
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    if (xsrf) headers['X-XSRF-TOKEN'] = xsrf;
-    const r = await fetch(${JSON.stringify(apiPath)}, {
-      method: ${JSON.stringify(method)}, headers, credentials: 'include',
-      ${body ? `body: ${JSON.stringify(JSON.stringify(body))},` : ''}
-    });
-    return { status: r.status, text: await r.text() };
-  })()`;
-  const res = await withTimeout(apiWin.webContents.executeJavaScript(code, true), 20 * 1000);
-  let json = null;
-  try { json = JSON.parse(res.text); } catch {}
-  return { status: res.status, json };
+// Authenticated queries stay in the main process, independent of the login document.
+async function kickFetch(apiPath, options = {}) {
+  return apiClient.request(apiPath, options);
 }
 
 // Na janela de cada live: força 160p enquanto ela está oculta e lê o chat do websocket
@@ -511,9 +531,12 @@ async function syncPartners() {
 }
 
 async function refreshChannel(slug) {
+  const generation = apiClient.generation;
+  assertSession(generation);
   const s = status.get(slug) || { watchedMs: 0 };
   try {
     const { status: code, json } = await kickFetch(`/api/v2/channels/${slug}`);
+    assertSession(generation);
     if (code !== 200 || !json) throw new Error(`HTTP ${code}`);
     s.chatroomId = json.chatroom && json.chatroom.id;
     const wasLive = s.live;
@@ -530,18 +553,23 @@ async function refreshChannel(slug) {
   } catch (e) {
     s.error = String(e.message || e);
   }
+  assertSession(generation);
   // Se a conta segue o canal (só logado) — para conferir se seguir influencia nos pontos.
   try {
     const { status: code, json } = await kickFetch(`/api/v2/channels/${slug}/me`);
+    assertSession(generation);
     if (code === 200 && json && typeof json.is_following === 'boolean') s.following = json.is_following;
     // Quem é sub ganha o dobro de pontos naquele canal (20 a cada 5 min).
     if (code === 200 && json && 'subscription' in json) s.subscribed = !!json.subscription;
   } catch {}
+  assertSession(generation);
   // Saldo de pontos — endpoint não documentado; se falhar, só mostramos "—".
   try {
     const { status: code, json } = await kickFetch(`/api/v2/channels/${slug}/points`);
+    assertSession(generation);
     if (code === 200 && json) {
       const p = json.data ? json.data.points : json.points;
+      if (verifiedAccountGeneration !== generation) { s.points = null; s.bonusTier = null; }
       if (typeof p === 'number') {
         // Ganho de assistir (gastos na loja fazem o saldo cair e não contam).
         if (s.points != null && p > s.points) {
@@ -555,6 +583,7 @@ async function refreshChannel(slug) {
       }
     }
   } catch {}
+  assertSession(generation);
   status.set(slug, s);
 }
 
@@ -843,26 +872,41 @@ let loggedIn = false;
 // Nome da conta logada: o chat destaca quando alguém menciona você.
 let username = null;
 async function fetchUsername() {
+  const generation = apiClient.generation;
   for (const p of ['/api/v1/user', '/api/v2/user']) {
     try {
       const { status: code, json } = await kickFetch(p);
+      assertSession(generation);
       const name = code === 200 && json && (json.username || (json.user && json.user.username));
-      if (name) return String(name);
+      if (name) {
+        const id = String(json.id || (json.user && json.user.id) || '');
+        adoptVerifiedAccount(/^[1-9][0-9]*$/.test(id) ? 'id:' + id : 'login:' + String(name).toLowerCase());
+        return String(name);
+      }
     } catch {}
+    assertSession(generation);
   }
   return null;
 }
 async function poll() {
+  if (sessionTransition) return;
+  const generation = apiClient.generation;
   if (polling && Date.now() - pollStartedAt < POLL_STUCK_MS) return;
   const startedAt = Date.now();
   polling = true;
   pollStartedAt = startedAt;
   try {
-    loggedIn = !!(await sessionToken());
-    await withTimeout(apiReady, 5 * 1000); // sem a página da Kick não há o que consultar agora
+    const token = await sessionToken();
+    assertSession(generation);
+    loggedIn = !!token;
     if (!loggedIn) username = null;
-    else if (!username) username = await fetchUsername();
+    else if (!username) {
+      const nextUsername = await fetchUsername();
+      assertSession(generation);
+      username = nextUsername;
+    }
     for (const slug of config.channels) await refreshChannel(slug);
+    assertSession(generation);
     if (configDirty) { configDirty = false; saveConfig(); }
     // Nenhum canal respondeu: a página de consulta pode ter ficado velha, então renova.
     if (config.channels.length && config.channels.every((slug) => (status.get(slug) || {}).error) && !apiWin.isVisible()) {
@@ -871,6 +915,7 @@ async function poll() {
     advanceLimitTest();
     reconcileWatchers();
     await checkPlayers();
+    assertSession(generation);
     logHistory();
     send('status', snapshot());
     updateTray();
@@ -963,56 +1008,52 @@ function recoverAfterResume() {
 }
 
 // Atualização automática pelo GitHub Releases. A versão portátil não se atualiza sozinha.
-const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
-function setupAutoUpdate() {
-  // No Linux só o AppImage se atualiza sozinho; o .deb é atualizado baixando de novo.
-  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_FILE || (isLinux && !process.env.APPIMAGE)) return;
-  const check = () => autoUpdater.checkForUpdatesAndNotify().catch(() => {});
-  autoUpdater.on('error', () => {}); // sem internet: tenta de novo na próxima rodada
-  check();
-  setInterval(check, UPDATE_CHECK_MS);
-}
+// Automatic updates remain disabled until the maintained fork has a validated signing policy.
+const handleIpc = createIpcRegistrar({
+  ipcMain, getMainWindow: () => mainWin, uiDocument: UI_DOCUMENT, platform: 'kick',
+  getContext: () => ({ channels: config.channels, chatroomIds: [...status.values()].map((s) => s.chatroomId), viewport: mainWin.getContentSize() }),
+});
 
-ipcMain.handle('state:get', () => snapshot());
-ipcMain.handle('channels:add', async (_e, slug) => {
+handleIpc('state:get', () => snapshot());
+handleIpc('channels:add', async (_e, slug) => {
   slug = String(slug || '').trim().toLowerCase().replace(/^https?:\/\/(www\.)?kick\.com\//, '').replace(/[^a-z0-9_-]/g, '');
   if (slug && !config.channels.includes(slug)) { config.channels.push(slug); saveConfig(); poll(); }
   return snapshot();
 });
-ipcMain.handle('channels:remove', (_e, slug) => {
+handleIpc('channels:remove', (_e, slug) => {
   config.channels = config.channels.filter((c) => c !== slug);
   stopWatcher(slug); status.delete(slug); saveConfig();
   return snapshot();
 });
-ipcMain.handle('farming:set', (_e, on) => { setFarming(on); return snapshot(); });
-ipcMain.handle('autostart:set', (_e, on) => { try { setOpenAtLogin(!!on); } catch {} return snapshot(); });
-ipcMain.handle('app:quit', quitApp);
-ipcMain.handle('notifyBonus:set', (_e, on) => { config.notifyBonus = !!on; saveConfig(); return snapshot(); });
-ipcMain.handle('notifyChat:set', (_e, on) => { config.notifyChat = !!on; saveConfig(); return snapshot(); });
-ipcMain.handle('sleepMode:set', (_e, on) => { config.sleepMode = !!on; saveConfig(); return snapshot(); });
-ipcMain.handle('favorite:toggle', (_e, slug) => {
+handleIpc('farming:set', (_e, on) => { setFarming(on); return snapshot(); });
+handleIpc('autostart:set', (_e, on) => { try { setOpenAtLogin(!!on); } catch {} return snapshot(); });
+handleIpc('app:quit', quitApp);
+handleIpc('notifyBonus:set', (_e, on) => { config.notifyBonus = !!on; saveConfig(); return snapshot(); });
+handleIpc('notifyChat:set', (_e, on) => { config.notifyChat = !!on; saveConfig(); return snapshot(); });
+handleIpc('sleepMode:set', (_e, on) => { config.sleepMode = !!on; saveConfig(); return snapshot(); });
+handleIpc('favorite:toggle', (_e, slug) => {
   if (!config.channels.includes(slug)) return snapshot();
   config.favorites = config.favorites.includes(slug) ? config.favorites.filter((s) => s !== slug) : [...config.favorites, slug];
   saveConfig();
   return snapshot();
 });
-ipcMain.handle('purchase:add', (_e, cost) => {
+handleIpc('purchase:add', (_e, cost) => {
   if (BONUSES.some((b) => b.cost === cost)) { config.purchases.push({ t: Date.now(), cost, slug: null }); saveConfig(); }
   updateTray();
   return snapshot();
 });
-ipcMain.handle('purchase:remove', (_e, t) => { config.purchases = config.purchases.filter((p) => p.t !== t); saveConfig(); updateTray(); return snapshot(); });
-ipcMain.handle('stores:sequence', (_e, slugs) => {
+handleIpc('purchase:remove', (_e, t) => { config.purchases = config.purchases.filter((p) => p.t !== t); saveConfig(); updateTray(); return snapshot(); });
+handleIpc('stores:sequence', (_e, slugs) => {
   const queue = (Array.isArray(slugs) ? slugs : []).filter((s) => config.channels.includes(s));
   if (!queue.length) return snapshot();
   storeSequence = { queue, total: queue.length, done: 0, current: null };
   openNextStore();
   return snapshot();
 });
-ipcMain.handle('stores:cancel', () => { if (storeSequence) storeSequence.queue = []; return snapshot(); });
-ipcMain.handle('report:get', () => weeklyReport());
+handleIpc('stores:cancel', () => { if (storeSequence) storeSequence.queue = []; return snapshot(); });
+handleIpc('report:get', () => weeklyReport());
 // Salva o card do relatório como imagem (o recorte é a área do card na janela).
-ipcMain.handle('report:save', async (_e, rect) => {
+handleIpc('report:save', async (_e, rect) => {
   const r = { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) };
   const image = await mainWin.webContents.capturePage(r);
   const { canceled, filePath } = await dialog.showSaveDialog(mainWin, {
@@ -1024,56 +1065,66 @@ ipcMain.handle('report:save', async (_e, rect) => {
   fs.writeFileSync(filePath, image.toPNG());
   return filePath;
 });
-ipcMain.handle('intro:done', () => { config.lastSeenVersion = app.getVersion(); firstRun = false; saveConfig(); return snapshot(); });
-ipcMain.handle('maxWatchers:set', (_e, n) => {
+handleIpc('intro:done', () => { config.lastSeenVersion = app.getVersion(); firstRun = false; saveConfig(); return snapshot(); });
+handleIpc('maxWatchers:set', (_e, n) => {
   limitTest = null; // mexer na mão cancela o teste de limite
   config.maxWatchers = Math.max(1, Math.min(30, Number(n) || 1)); saveConfig(); reconcileWatchers(); return snapshot();
 });
-ipcMain.handle('rotation:set', (_e, on) => { limitTest = null; config.rotation = !!on; saveConfig(); reconcileWatchers(); return snapshot(); });
-ipcMain.handle('bonusTarget:set', (_e, cost) => {
+handleIpc('rotation:set', (_e, on) => { limitTest = null; config.rotation = !!on; saveConfig(); reconcileWatchers(); return snapshot(); });
+handleIpc('bonusTarget:set', (_e, cost) => {
   config.bonusTarget = BONUSES.some((b) => b.cost === cost) ? cost : 0;
   saveConfig();
   reconcileWatchers();
   return snapshot();
 });
-ipcMain.handle('limitTest:start', () => {
+handleIpc('limitTest:start', () => {
   if (!loggedIn && !process.env.KICKTERINO_LIMIT_AUTOSTART) return snapshot(); // sem login a Kick não dá pontos: o teste não mediria nada
   startLimitTest(); reconcileWatchers(); return snapshot(); });
-ipcMain.handle('limitTest:stop', () => { stopLimitTest(); reconcileWatchers(); return snapshot(); });
-ipcMain.handle('lowQuality:set', (_e, on) => {
+handleIpc('limitTest:stop', () => { stopLimitTest(); reconcileWatchers(); return snapshot(); });
+handleIpc('lowQuality:set', (_e, on) => {
   config.lowQuality = !!on; saveConfig();
   for (const win of watchers.values()) if (!win.isDestroyed() && !userOpened.has(win)) win.webContents.reload();
   return snapshot();
 });
-ipcMain.handle('refresh', async () => { await poll(); return snapshot(); });
-ipcMain.handle('login:show', async () => {
+handleIpc('refresh', async () => { await poll(); return snapshot(); });
+handleIpc('login:show', async () => {
   apiWin.show(); apiWin.focus();
   await loadApi(`${KICK}/login`);
 });
 // Sair da conta: apaga cookies, cache e tudo que as páginas guardaram, inclusive o login do
 // Google, Apple ou Discord. A lista de canais e as preferências ficam.
-ipcMain.handle('logout', async () => {
+handleIpc('logout', async () => {
   const { response } = await dialog.showMessageBox(mainWin, {
     type: 'question', buttons: ['Sair da conta', 'Cancelar'], defaultId: 1, cancelId: 1,
     title: 'Sair da conta', message: 'Sair da conta da Kick neste PC?',
     detail: 'Os dados de login salvos no app serão apagados. Para farmar de novo, será preciso entrar outra vez.',
   });
   if (response !== 0) return snapshot();
-  for (const slug of [...watchers.keys()]) stopWatcher(slug);
-  for (const win of storeWindows.values()) if (!win.isDestroyed()) win.close();
-  const ses = session.fromPartition(PARTITION);
-  await ses.clearStorageData();
-  await ses.clearCache();
-  await ses.clearAuthCache();
-  ses.flushStorageData();
-  status.clear();
-  await loadApi(LIGHT_URL);
-  await poll();
+  sessionTransition = true;
+  apiClient.suspend();
+  try {
+    apiWin.webContents.stop();
+    resetAccountRuntime();
+    verifiedAccountGeneration = -1;
+    const ses = session.fromPartition(PARTITION);
+    await ses.clearStorageData();
+    await ses.clearCache();
+    await ses.clearAuthCache();
+    ses.flushStorageData();
+    status.clear();
+    username = null;
+    loggedIn = false;
+    loadApi(LIGHT_URL);
+  } finally {
+    sessionTransition = false;
+    apiClient.resume();
+  }
+  setTimeout(poll, 0);
   return snapshot();
 });
-ipcMain.handle('store:open', (_e, slug) => openStore(slug));
+handleIpc('store:open', (_e, slug) => openStore(slug));
 // Mostra a live de verdade, com imagem, som e qualidade normal (e o aviso +18, se houver, para a pessoa confirmar).
-ipcMain.handle('channel:show', (_e, slug) => {
+handleIpc('channel:show', (_e, slug) => {
   let win = watchers.get(slug);
   if (!win) { startWatcher(slug); win = watchers.get(slug); }
   userOpened.add(win);
@@ -1088,7 +1139,7 @@ ipcMain.handle('channel:show', (_e, slug) => {
   if (s) s.ageGate = false;
   send('status', snapshot());
 });
-ipcMain.handle('chat:send', async (_e, { chatroomId, content }) => {
+handleIpc('chat:send', async (_e, { chatroomId, content }) => {
   const { status: code, json } = await kickFetch(`/api/v2/messages/send/${chatroomId}`, {
     method: 'POST', body: { content, type: 'message' },
   });
@@ -1107,7 +1158,7 @@ app.whenReady().then(() => {
     width: 1100, height: 760, backgroundColor: '#1a1a1a', title: 'Kickterino',
     show: !process.argv.includes('--hidden'), // ao iniciar com o Windows, abre direto na bandeja
     icon: path.join(__dirname, 'build', 'icon.png'),
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, additionalArguments: ['--app-ui-url=' + UI_DOCUMENT] },
   });
   mainWin.setMenuBarVisibility(false);
   mainWin.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -1131,7 +1182,6 @@ app.whenReady().then(() => {
   createTray();
   syncKeepAwake();
   powerMonitor.on('resume', recoverAfterResume);
-  setupAutoUpdate();
   createApiWindow();
   apiReady.then(poll).then(() => {
     if (process.env.KICKTERINO_LIMIT_AUTOSTART) { startLimitTest(); reconcileWatchers(); }
