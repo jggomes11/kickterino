@@ -2,7 +2,7 @@
 
 Baseline: 0.3.0, commit `79e3596a19818986ab9dbf1f8060adce6cbeed98`. Target: `jggomes11/kickterino`.
 
-Status: proposed; product implementation has not started.
+Status: approved by the user for implementation and fork PRs without further confirmations.
 
 ## Intent and scope
 
