@@ -1,0 +1,339 @@
+{
+  "project": "kickterino",
+  "version": "0.3.1",
+  "captured_at_utc": "2026-11-12T03:37:06+00:00",
+  "captured_at_client": "2026-11-11T23:37:06-04:00",
+  "source_checkout_commit": "aa05dc37d8bad0d370210833ca2a86f12c5f6f45",
+  "release_source_commit": "90aaf8176ada0aef4f8cbe244e48fea764538643",
+  "default_branch_commit_observed": "79e3596a19818986ab9dbf1f8060adce6cbeed98",
+  "tracked_file_count": 53,
+  "runtime_scope": "static inspection and existing node test suite; no live-account resource benchmark",
+  "node_test_command": "npm test",
+  "node_version": "24.22.1",
+  "tests": {
+    "passed": 51,
+    "failed": 0
+  },
+  "windows_build_run": "43133279874",
+  "installer_sha256": "63662a63a7f5e3f3c53d372a8eac4b25ac278ed812918b7af0f7b7c956f1e4c6",
+  "files": [
+    {
+      "path": ".github/workflows/publish-verified-release.yml",
+      "bytes": 1683,
+      "sha256": "234023a5e323bd631ed58b9848a938222b0f4c6a2f3c64eee24d3d9283776c2e",
+      "responsibility": "Workflow CI/release; descrito em VALIDAÇÃO E ENTREGA"
+    },
+    {
+      "path": ".github/workflows/windows-validation.yml",
+      "bytes": 817,
+      "sha256": "fd8706debc3019409f6fde4219fa08bba6b5db6242361f5ecdc2db044e3b1a0d",
+      "responsibility": "Workflow CI/release; descrito em VALIDAÇÃO E ENTREGA"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 77,
+      "sha256": "2fa8477c09e4a27f481d9300c4b1d0877712044e4b708077163fa62f55fb045c",
+      "responsibility": "Exclusões de dependências, saídas de build e scratch"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1070,
+      "sha256": "44c97fe63abad5ebf1be38d6971607e66cd50e5661ca8d35229af69adacfb221",
+      "responsibility": "Licença MIT/autoria preservada"
+    },
+    {
+      "path": "README.md",
+      "bytes": 6279,
+      "sha256": "aa93090320e26f23f1b55ac2b503dee641e54785213c710a1df3080d13737d49",
+      "responsibility": "Guia do produto, instalação e limitações"
+    },
+    {
+      "path": "account-manager.js",
+      "bytes": 1894,
+      "sha256": "f30cd46fe1b5cc9c6ae6b9c1eba77af25102cc234c7344060cf893ebfa812d73",
+      "responsibility": "Seleção/agregação/despacho dos quatro slots"
+    },
+    {
+      "path": "account-runtime.js",
+      "bytes": 49599,
+      "sha256": "88fb27f40637af51c5d803a9f12e1b10ed26ee4e9671502ec752093edeb543a9",
+      "responsibility": "Comportamentos por conta, mídia, integração e regras"
+    },
+    {
+      "path": "build/icon.png",
+      "bytes": 5199,
+      "sha256": "8b9c8564bd5aa75f575ab253ea1462cfea78ae9060b72d0e9a66a40d4f6c067d",
+      "responsibility": "Recurso de empacotamento/ícone e sua procedência; não lógica de coleta"
+    },
+    {
+      "path": "docs/VALIDATION.md",
+      "bytes": 3760,
+      "sha256": "c8f3348b60f59e17ffc8a8638287455f95a95257ce1a138897415bd715c27dd7",
+      "responsibility": "Registro histórico de validação, pode conter estados de etapas anteriores"
+    },
+    {
+      "path": "docs/account-fixture.png",
+      "bytes": 174849,
+      "sha256": "c4c5768d4ef21fbddf5938b8fcb8c4a2ef544bd2b585beac220e148f2ead2b78",
+      "responsibility": "Imagem/documentação pública; não dados de usuário"
+    },
+    {
+      "path": "docs/app.png",
+      "bytes": 58732,
+      "sha256": "383a849ea7b11ae67ff1c5c665ba35abe5ec318d3c124b2800de364308abe383",
+      "responsibility": "Imagem/documentação pública; não dados de usuário"
+    },
+    {
+      "path": "docs/icon.png",
+      "bytes": 5199,
+      "sha256": "8b9c8564bd5aa75f575ab253ea1462cfea78ae9060b72d0e9a66a40d4f6c067d",
+      "responsibility": "Imagem/documentação pública; não dados de usuário"
+    },
+    {
+      "path": "docs/index.html",
+      "bytes": 7002,
+      "sha256": "ab140c002e721f0d205126564d1438f6bb4e98c0623e99b524e219de0c9bf4ac",
+      "responsibility": "Site estático de divulgação/download, separado da UI do app"
+    },
+    {
+      "path": "docs/parceiros.json",
+      "bytes": 222,
+      "sha256": "6c79fb8a22c14b5fce088ab92ca478625b1b27afed5a546d01ba36ea87712c5f",
+      "responsibility": "Lista pública de parceiros do fork (runtime consulta upstream explicitamente)"
+    },
+    {
+      "path": "docs/releases/v0.3.1.pt-BR.md",
+      "bytes": 699,
+      "sha256": "71c3f7d83b6265bebf67c90c5da056694d86611427c7599346e48e848cdec3e8",
+      "responsibility": "Notas de versão históricas/publicadas"
+    },
+    {
+      "path": "docs/style.css",
+      "bytes": 3244,
+      "sha256": "924d8e3ec737884c6c33116bb1658ed95e0d185ba476f8fb7122e49ccc7f268d",
+      "responsibility": "CSS do site estático"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-11-11-security-multi-account.md",
+      "bytes": 13977,
+      "sha256": "454b9333ea1638e122ab3ed833a35144949332f0b2280be75e3c5070a07109e1",
+      "responsibility": "Plano/design histórico; confrontar intenção com código vigente"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-11-11-security-multi-account-design.md",
+      "bytes": 5877,
+      "sha256": "ac48b1782a8e6b8f85a6fe19b4560173bcd29057ebe5ccf719b3a289e8bdc348",
+      "responsibility": "Plano/design histórico; confrontar intenção com código vigente"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-11-11-twitch-layout-design.md",
+      "bytes": 1606,
+      "sha256": "5d1fe0a590aacbde49fc27703021e9b89e1f6e383d75050da29300dab40d96d4",
+      "responsibility": "Plano/design histórico; confrontar intenção com código vigente"
+    },
+    {
+      "path": "iniciar.bat",
+      "bytes": 82,
+      "sha256": "31cb09d16a1b951533ba6ff698e7d01bf4050646126a419e7ccc3ec7703c3ae1",
+      "responsibility": "Launcher de desenvolvimento Windows; instala dependências se ausentes"
+    },
+    {
+      "path": "main.js",
+      "bytes": 8513,
+      "sha256": "50f3c22ad3e00b85d1562baee4b9a1583cdd8610f43e2d25e71f30e94f32c6ae",
+      "responsibility": "Shell Electron e ciclo global"
+    },
+    {
+      "path": "package-lock.json",
+      "bytes": 126252,
+      "sha256": "74083cdb2deaf46f1eeed94341d728cb589882ca4116b00e458e3c35ca81b1d7",
+      "responsibility": "Resolução reprodutível de dependências de build"
+    },
+    {
+      "path": "package.json",
+      "bytes": 2520,
+      "sha256": "1b4273d12352e88f1af260cb177decf5d62402d99b583f3c5d06e6fc55d7f23e",
+      "responsibility": "Manifesto, scripts, versões e empacotamento"
+    },
+    {
+      "path": "preload.js",
+      "bytes": 3446,
+      "sha256": "c0b82f45d49ec63fc5d6ec2d6235a08eaf2e1b1aff4230bb44f934c3972ca032",
+      "responsibility": "Ponte IPC local e filtragem por conta"
+    },
+    {
+      "path": "renderer/features.css",
+      "bytes": 5628,
+      "sha256": "a01a0c96ac4c610f9792c6d613af70b46203b91ac9bb6b163beddee983d6a94a",
+      "responsibility": "Estilos de bônus, relatórios e contas"
+    },
+    {
+      "path": "renderer/index.html",
+      "bytes": 6424,
+      "sha256": "d059f502fd16a0b8d7da6f7a511f95193c849fdcb189b4070dbd422048c5e218",
+      "responsibility": "Estrutura da UI e CSP"
+    },
+    {
+      "path": "renderer/renderer.js",
+      "bytes": 37104,
+      "sha256": "8e4ad7ddd6a33a260bc46d644633de6bfb8c75be9d0bbf20d0d9169f3806b951",
+      "responsibility": "DOM/chat/controles/modais/notificações"
+    },
+    {
+      "path": "renderer/style.css",
+      "bytes": 5961,
+      "sha256": "bb4647323789b297dd71cf00d8b4343a4c37a5fbb411de3e27b7a45d54c834cc",
+      "responsibility": "Estilos base"
+    },
+    {
+      "path": "renderer/theme.css",
+      "bytes": 20734,
+      "sha256": "098247bcb60020598d44d3b323d887938adaf7780fe728e40a50dcf6e4805ea7",
+      "responsibility": "Tema e disposição/responsividade"
+    },
+    {
+      "path": "scripts/account-fixture.cjs",
+      "bytes": 1239,
+      "sha256": "80a25c5dd36fc006b166607d6e94a02b34a19a78b9f33e3d16aa4e36c490b333",
+      "responsibility": "Asserções de defaults/partições e encerramento natural"
+    },
+    {
+      "path": "scripts/cdp-client.cjs",
+      "bytes": 2310,
+      "sha256": "296b349b116934ed1e4b6b1a0d35344cd656fb8c304a223d25ca9897e1827f65",
+      "responsibility": "Cliente CDP de teste e tratamento de desconexão"
+    },
+    {
+      "path": "scripts/package-windows-release.cjs",
+      "bytes": 1555,
+      "sha256": "1e6d9cfaa51caf73573b93baa4db1585993fed995bd69377657be731f909c696",
+      "responsibility": "Preparação do instalador e metadados de origem"
+    },
+    {
+      "path": "scripts/profile-process.cjs",
+      "bytes": 474,
+      "sha256": "cffad327400b38da774d58d4fa30d7b611db066d6d9cb4c08a9a20ab6d1da598",
+      "responsibility": "Identificação/encerramento de processos de teste"
+    },
+    {
+      "path": "scripts/test-accounts.cjs",
+      "bytes": 8686,
+      "sha256": "52418a9e09799a1327f3c27ffb5c9f6bbf49698e0b1891255641fba26dacc0a0",
+      "responsibility": "Fixture real source+UI com dados fictícios e perfis"
+    },
+    {
+      "path": "scripts/test-electron.cjs",
+      "bytes": 856,
+      "sha256": "d2ee3bd88196abd511fa9de081f241db1e68e1453b9043c107aedb96c3df5ed7",
+      "responsibility": "Runner Electron isolado com perfil temporário"
+    },
+    {
+      "path": "scripts/validate-accounts.cjs",
+      "bytes": 8343,
+      "sha256": "1c6e34c0f836dcea8c4abe5a8ae8b1ee4ad4f9f0f52bd6f806b902a0ff67bb35",
+      "responsibility": "Validação nativa Windows do app empacotado"
+    },
+    {
+      "path": "security/account-view.js",
+      "bytes": 1272,
+      "sha256": "dd2a9519e878cb85dc3a743571324e883ecc1707d625efa3cc9ac34f678e5f32",
+      "responsibility": "Época da seleção e rejeição de respostas antigas"
+    },
+    {
+      "path": "security/accounts.js",
+      "bytes": 1470,
+      "sha256": "0bda29a5d5a1c4c9ece148b0163c2f76a66332a1954425374dd7e56d3fe973da",
+      "responsibility": "Adoção/arquivo de relatórios por identidade"
+    },
+    {
+      "path": "security/ipc.js",
+      "bytes": 6452,
+      "sha256": "4e652130501379315dd7204050f565e50cb73297e92f0ac6483b5c42229e1818",
+      "responsibility": "Validação de origem/argumentos de comandos"
+    },
+    {
+      "path": "security/platform.js",
+      "bytes": 2234,
+      "sha256": "aa4c85f8e37bc923613c82920b43b59744ea12e870e54ef71baec1b3215200fb",
+      "responsibility": "Allowlist de endpoints e construção de headers"
+    },
+    {
+      "path": "security/requests.js",
+      "bytes": 3728,
+      "sha256": "123947c0039bc6ced1e00f676f7462db63927413d2706f127d155dee0b915d7c",
+      "responsibility": "Transporte, abort, limite de corpo e cookies"
+    },
+    {
+      "path": "tests/account-fixture.test.cjs",
+      "bytes": 1764,
+      "sha256": "b8ae6c3bf7adcdb4c86f7ea57c2dc2024ac40efb974ebd219fc1eb23cd377325",
+      "responsibility": "Critérios da fixture de perfis e exigência de encerramento natural; falhas não viram sucesso por cleanup."
+    },
+    {
+      "path": "tests/account-view.test.cjs",
+      "bytes": 7046,
+      "sha256": "a67cf6bd49b9ae4729930ac36d13540708551328cc53d95b61aa10415ff3c4f5",
+      "responsibility": "Respostas atrasadas, seleção A→B→A, ponte congelada, reload, notificações e captura de conta."
+    },
+    {
+      "path": "tests/accounts.test.cjs",
+      "bytes": 1244,
+      "sha256": "7c0002b83248ea1aa9b5f59309b38bb15f55caf04a6d23b24a5cd4cc0842380f",
+      "responsibility": "Arquivar/restaurar relatórios por identidade; adotar histórico legado."
+    },
+    {
+      "path": "tests/app-bootstrap.cjs",
+      "bytes": 1407,
+      "sha256": "fc85b3faad8bf0896da81cd17f54b407504418890909c6e7409ca6198ceea839",
+      "responsibility": "Fixture/helper: ver contratos e efeitos simulados no arquivo"
+    },
+    {
+      "path": "tests/application.test.cjs",
+      "bytes": 3322,
+      "sha256": "bd28ded98e214e812a9cbe3a25bf4cf5dd656bfc66d34bd2f588c14feff03507",
+      "responsibility": "Aplicação real carregada sob doubles Electron: transporte, identidade, logout e comandos; não é login real."
+    },
+    {
+      "path": "tests/electron-fixture.cjs",
+      "bytes": 3892,
+      "sha256": "4def6adca8006d2793043d61bfd0dd9ae9a553a3bf0ddc67a39b921cd06fcb43",
+      "responsibility": "Fixture/helper: ver contratos e efeitos simulados no arquivo"
+    },
+    {
+      "path": "tests/helpers/app.cjs",
+      "bytes": 10052,
+      "sha256": "57ecd7e00d8f98335ab26f40b3122618cfaae0e375346ac9c5540a186b4ee5ce",
+      "responsibility": "Fixture/helper: ver contratos e efeitos simulados no arquivo"
+    },
+    {
+      "path": "tests/ipc.test.cjs",
+      "bytes": 6622,
+      "sha256": "1c53716453b01770a1773c1a6405903c27bef24fffb83e4e254897a0754464ad",
+      "responsibility": "Autenticação de origem/frame e validação de argumentos/limites."
+    },
+    {
+      "path": "tests/multi-account.test.cjs",
+      "bytes": 7665,
+      "sha256": "7f9323b172cabad45a729e3113a4d161223bb214ce63352ae66a75c1e556f2d8",
+      "responsibility": "Quatro runtimes/sessões, configs independentes, origem de comandos/popups e continuidade em background."
+    },
+    {
+      "path": "tests/platform.test.cjs",
+      "bytes": 3872,
+      "sha256": "d48b2cb8dfa4a55f3026956234cd41758f91c76308c6538623029192391620f9",
+      "responsibility": "Destinos/cabeçalhos e caminhos permitidos do transporte; há casos das duas plataformas no módulo compartilhado."
+    },
+    {
+      "path": "tests/policy.test.cjs",
+      "bytes": 795,
+      "sha256": "ab3532c1cd3596e7d7bc3fe961f13e643b66e378387c2c9c06e15bcf60e75b57",
+      "responsibility": "Metadados do fork, inclusão de módulos e política de pacote/updater conforme asserções do arquivo."
+    },
+    {
+      "path": "tests/requests.test.cjs",
+      "bytes": 5549,
+      "sha256": "c00c91b281c8ec101c2f78644e4844760c307ad08ae4690bfd6c38c1015a0af0",
+      "responsibility": "Timeout/abort, redirects, limites, cookies malformados e invalidação do cliente."
+    }
+  ]
+}

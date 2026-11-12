@@ -91,3 +91,7 @@ A integração usa endpoints internos da Kick; um bloqueio ou mudança de format
 ## Licença
 
 [MIT](LICENSE)
+
+## Documentação técnica do estado atual
+
+A [base técnica](docs/technical/README.md) reúne arquitetura, regras de negócio rastreáveis, integrações, persistência, testes, inventário e um protocolo de medição de desempenho. Descreve a versão publicada e separa evidência de código/testes de consumo de recursos ainda não medido.
