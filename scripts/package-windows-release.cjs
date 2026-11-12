@@ -1,0 +1,18 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
+const {execFileSync}=require('node:child_process');
+const root=path.resolve(__dirname,'..'),pkg=require('../package.json');
+assert.equal(process.platform,'win32','Build release installers on native Windows');
+assert.equal(execFileSync('git',['status','--porcelain','--untracked-files=no'],{cwd:root,encoding:'utf8'}).trim(),'','Commit tracked changes before building an identified candidate');
+const output=path.join(root,'release-output');
+assert(!fs.existsSync(output),'Refusing to reuse release-output');
+execFileSync(process.execPath,[path.join(root,'node_modules/electron-builder/cli.js'),'--win','--publish','never'],{cwd:root,stdio:'inherit'});
+const installer='Kickterino-Setup.exe',source=path.join(root,'dist',installer);
+assert(fs.statSync(source).size>0,'Missing installer');
+fs.mkdirSync(output,{recursive:true});fs.copyFileSync(source,path.join(output,installer));
+const sha256=crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex');
+const sourceSha=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+fs.writeFileSync(path.join(output,'release-build-info.json'),JSON.stringify({version:pkg.version,sourceSha,sha256,installer,signed:false,accounts:4,applicationWindows:1,distribution:'nsis-installer'},null,2)+'\n');
+fs.writeFileSync(path.join(output,'SHA256SUMS.txt'),sha256+'  '+installer+'\n');
+console.log('Prepared local candidate from '+sourceSha);

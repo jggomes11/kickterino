@@ -5,17 +5,16 @@
   "description": "Cliente multi-chat da Kick (estilo Chatterino) que mant\u00e9m voc\u00ea assistindo v\u00e1rias lives para acumular pontos do canal.",
   "author": "VinniiSaantos",
   "license": "MIT",
-  "homepage": "https://viinnisantoos.github.io/kickterino/",
-  "repository": "github:ViinniSantoos/kickterino",
+  "homepage": "https://github.com/jggomes11/kickterino#readme",
+  "repository": "github:jggomes11/kickterino",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
-    "test": "node --test tests/*.test.cjs"
-  },
-  "dependencies": {
-    "electron-updater": "^6.6.2"
+    "test": "node --test tests/*.test.cjs",
+    "test:electron": "node scripts/test-electron.cjs",
+    "test:accounts": "node scripts/test-accounts.cjs"
   },
   "devDependencies": {
     "electron": "45.2.1",
@@ -31,7 +30,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "ViinniSantoos",
+        "owner": "jggomes11",
         "repo": "kickterino"
       }
     ],
@@ -39,7 +38,11 @@
       "main.js",
       "preload.js",
       "renderer/**/*",
-      "build/icon.png"
+      "build/icon.png",
+      "LICENSE",
+      "security/**/*",
+      "account-runtime.js",
+      "account-manager.js"
     ],
     "electronFuses": {
       "enableCookieEncryption": true,
@@ -50,8 +53,7 @@
     },
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ],
       "icon": "build/icon.png"
     },
@@ -63,9 +65,6 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Kickterino",
       "runAfterFinish": true
-    },
-    "portable": {
-      "artifactName": "Kickterino-portatil.exe"
     },
     "linux": {
       "target": [
@@ -89,5 +88,8 @@
   "desktopName": "kickterino.desktop",
   "engines": {
     "node": ">=22.13.0"
+  },
+  "overrides": {
+    "minimatch@>=7.0.0 <11.0.1": "11.0.1"
   }
 }

@@ -75,3 +75,16 @@ test('an initial read completing late cannot override an explicit account select
  await tt.setFarming(false);assert.equal(calls.at(-1)[1].accountId,'account-3');
  const view=createAccountViewGuard();view.select('account-3');assert.equal(view.accept({accountId:'account-2'}),false);
 });
+test('account selector renders connected accounts without missing formatter globals',()=>{
+ const source=fs.readFileSync(require('node:path').join(__dirname,'../renderer/renderer.js'),'utf8');
+ const functions=source.slice(source.indexOf('function renderAccounts('),source.indexOf('async function selectAccount'));
+ const prefix=source.slice(0,source.indexOf('let state ='));
+ const button={classList:{toggle(){}},setAttribute(){},replaceChildren(){},dataset:{}};
+ const nav={querySelector:()=>button};
+ const result=vm.runInNewContext(prefix+functions+'\nrenderAccounts();true',{
+  window:{kick:{}},AccountView:{createAccountViewGuard},document:{querySelector:()=>nav},
+  state:{accounts:[{id:'account-1',label:'Conta 1',loggedIn:true,farming:true,watching:2,today:10}]},
+  el:()=>({}),
+ });
+ assert.equal(result,true);
+});

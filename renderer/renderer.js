@@ -9,6 +9,7 @@ const api = Object.fromEntries(Object.entries(window.kick).map(([key, method]) =
   typeof method !== 'function' || key.startsWith('on') || key === 'selectAccount' ? method
     : (...args) => accountView.run(() => method(...args)),
 ]));
+const fmt = value => Number(value).toLocaleString('pt-BR');
 let state = { channels: [], farming: true, maxWatchers: 2 };
 let active = null;
 const buffers = new Map();   // slug -> array de elementos .msg

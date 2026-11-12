@@ -4,3 +4,4 @@ dist/
 .claude/
 dist-linux/
 .superpowers/
+release-output/
