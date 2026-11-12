@@ -91,11 +91,12 @@ const runtimes = ACCOUNT_IDS.map((id, index) => createAccountRuntime({
 const manager = createAccountManager({ runtimes });
 
 const TRUSTED_DOMAINS = ['kick.com', 'apple.com', 'discord.com', 'google.com', 'accounts.youtube.com'];
+const GOOGLE_REGIONAL = /^accounts\.google\.(com?\.)?[a-z]{2}$/;
 function isTrustedUrl(url) {
   if (url === 'about:blank') return true;
   try {
     const { protocol, hostname } = new URL(url);
-    return protocol === 'https:' && TRUSTED_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d));
+    return protocol === 'https:' && (GOOGLE_REGIONAL.test(hostname) || TRUSTED_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d)));
   } catch { return false; }
 }
 app.on('web-contents-created', (_event, wc) => {

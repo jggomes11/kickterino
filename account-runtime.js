@@ -123,20 +123,6 @@ function lowestQualityOnly(playlist) {
   return [...head, ...variants[0]].join('\n') + '\n';
 }
 
-// Só a Kick e as páginas de login que ela usa abrem no app: nada de site de fora na mesma
-// sessão que guarda o login. Pop-ups de login abrem numa janela normal com a mesma sessão.
-const TRUSTED_DOMAINS = ['kick.com', 'google.com', 'accounts.youtube.com', 'apple.com', 'discord.com'];
-const GOOGLE_REGIONAL = /^accounts\.google\.(com?\.)?[a-z]{2}$/; // o Google passa pelo domínio do país no login
-
-function isTrustedUrl(url) {
-  if (url === 'about:blank') return true;
-  try {
-    const { protocol, hostname } = new URL(url);
-    return protocol === 'https:' && (GOOGLE_REGIONAL.test(hostname)
-      || TRUSTED_DOMAINS.some((d) => hostname === d || hostname.endsWith(`.${d}`)));
-  } catch { return false; }
-}
-
 // Página "vazia" em kick.com: mesma origem e cookies, mas sem carregar o site inteiro.
 const LIGHT_URL = `${KICK}/robots.txt`;
 
@@ -220,6 +206,7 @@ function sessionCurrent(epoch) { return !stopped && !suspended && epoch === sess
 function invalidateSession() {
   sessionEpoch++; apiClient.invalidate(); loggedIn = false; sessionChecking = true;
   storeSequence = null;
+  syncKeepAwake();
   stopLimitTest();
   for (const slug of [...watchers.keys()]) stopWatcher(slug);
   for (const win of [...storeWindows.values()]) if (!win.isDestroyed()) win.destroy();
@@ -808,6 +795,7 @@ function snapshot() {
   const now = Date.now();
   return {
     farming: config.farming,
+    today: config.daily[dayKey(now)] || 0,
     maxWatchers: config.maxWatchers,
     lowQuality: config.lowQuality,
     rotation: config.rotation,
@@ -886,7 +874,7 @@ async function poll() {
   } catch {
     if (sessionCurrent(epoch)) { invalidateSession(); username = null; }
   } finally {
-    polling = false;
+    polling = false; syncKeepAwake();
     send('status', snapshot()); updateTray();
   }
 }
@@ -895,8 +883,9 @@ async function poll() {
 // Impede o PC de suspender enquanto farma. O monitor pode apagar normalmente.
 let awakeBlocker = null;
 function syncKeepAwake() {
-  if (config.farming && awakeBlocker == null) awakeBlocker = powerSaveBlocker.start('prevent-app-suspension');
-  if (!config.farming && awakeBlocker != null) { powerSaveBlocker.stop(awakeBlocker); awakeBlocker = null; }
+  const shouldStayAwake = config.farming && loggedIn && !suspended && !stopped;
+  if (shouldStayAwake && awakeBlocker == null) awakeBlocker = powerSaveBlocker.start('prevent-app-suspension');
+  if (!shouldStayAwake && awakeBlocker != null) { powerSaveBlocker.stop(awakeBlocker); awakeBlocker = null; }
 }
 
 function setFarming(on) {

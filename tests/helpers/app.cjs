@@ -9,6 +9,7 @@ const { createRequire } = require('node:module');
 function loadApp({ packaged = false, platform = 'win32', configSeed = null, singleInstance = true, env = {}, argv = [], loginRegistry = new Map() } = {}) {
   const root = path.resolve(__dirname, '../..');
   const state = { scripts: [], requests: [], writes: [], quit: 0, updates: 0, windows: [], ready: [], dialogResponse: 0, sockets: [], timers: [], reloads: [] };
+  state.blockers = new Set(); let blockerId = 0;
   state.paths = {}; state.loginItems = []; state.loginQueries = [];
   const cookies = new EventEmitter();
   cookies.get = async ({ name }) => [{ name: name || 'session_token', value: name === 'auth-token' || name === 'session_token' || !name ? 'FAKE_ACCOUNT_TOKEN' : 'FAKE_OTHER_COOKIE' }];
@@ -84,7 +85,7 @@ function loadApp({ packaged = false, platform = 'win32', configSeed = null, sing
     dialog: { showMessageBox: async () => ({ response: state.dialogResponse }), showSaveDialog: async () => ({ canceled: true }) },
     Tray, Menu: { buildFromTemplate: () => ({}) }, Notification,
     nativeImage: { createFromPath: () => image, createFromDataURL: () => image },
-    powerSaveBlocker: { start: () => 1, stop() {}, isStarted: () => false }, powerMonitor: new EventEmitter(),
+    powerSaveBlocker: { start() { const id=++blockerId; state.blockers.add(id); return id; }, stop(id) { state.blockers.delete(id); }, isStarted: id => state.blockers.has(id) }, powerMonitor: new EventEmitter(),
     net: { fetch: async () => new Response('{"channels":[]}') },
   };
   const ownRequire = createRequire(path.join(root, 'main.js'));
@@ -123,7 +124,7 @@ function loadApp({ packaged = false, platform = 'win32', configSeed = null, sing
   }
   return {
     state, app, session, sessions, handlers, main, api, apiExports, runtimes, manager, dialog: electron.dialog,
-    event: () => ({ sender: main.webContents, senderFrame: main.webContents.mainFrame }),
+    event: () => { const current = state.windows.findLast(w => w.options.webPreferences?.preload) || main; return { sender: current.webContents, senderFrame: current.webContents.mainFrame }; },
     async fireTimers(delay) {
       const timers = state.timers.filter(timer => timer.delay === delay);
       state.timers = state.timers.filter(timer => timer.delay !== delay);

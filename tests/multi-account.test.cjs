@@ -91,3 +91,30 @@ test('slot1 retains existing profile paths and no aggregate snapshot contains a 
   assert(!JSON.stringify(app.manager.snapshot()).includes('FAKE_TOKEN'));
   assert.equal(app.manager.snapshot().accounts.length,4);
 });
+test('regional Google login windows retain their source session', async()=>{
+ const a=loadApp();await a.start();
+ const login=a.state.windows.find(w=>w.options.webPreferences?.partition==='persist:kick-account-2');
+ for(const url of ['https://accounts.google.com.br/signin','https://accounts.google.co.uk/signin']){
+  assert.equal(login.webContents.openHandler({url}).action,'allow',url);
+  let prevented=false;login.webContents.emit('will-redirect',{isMainFrame:true,url,preventDefault(){prevented=true;}});
+  assert.equal(prevented,false);
+ }
+ assert.equal(login.webContents.openHandler({url:'https://accounts.google.com.br.evil.invalid/'}).action,'deny');
+});
+test('selector today total comes from the selected account daily report',async()=>{
+ const a=loadApp(),d=new Date();
+ const day=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+ a.runtimes[0].__test.config.daily[day]=10;a.runtimes[1].__test.config.daily[day]=25;
+ assert.equal(a.manager.snapshot().accounts[0].today,10);
+ assert.equal(a.manager.snapshot().accounts[1].today,25);
+});
+test('empty slots do not prevent sleep after the connected account is paused',async()=>{
+ const a=loadApp();
+ for(const ses of a.sessions.values()) ses.fetch=async()=>new Response('{}',{status:401});
+ await a.start();
+ assert.equal(a.state.blockers.size,0,'unauthenticated slots must not prevent sleep');
+ const r=a.runtimes[0];setAccount(r,a.sessions.get(r.partition),1,100);await r.poll();
+ assert.equal(a.state.blockers.size,1);
+ await a.handlers.get('account:command')(a.event(),{accountId:ids[0],command:'farming:set',args:[false]});
+ assert.equal(a.state.blockers.size,0);
+});

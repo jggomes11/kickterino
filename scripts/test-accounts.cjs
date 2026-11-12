@@ -48,7 +48,9 @@ async function quit(){
   assert.equal(all.accounts.length,4);assert(all.accounts.every(a=>a.watching===2));
   assert.deepEqual(ui.exceptions,[]);
   await evaluate(ui, 'document.querySelectorAll("#modal button").forEach(b => { if (b.textContent === "Entendi") b.click(); }); true');
-  await ui.call('Page.captureScreenshot',{format:'png'}).then(r=>fs.writeFileSync(path.join(root,'docs/account-fixture.png'),Buffer.from(r.data,'base64')));
+  const screenshots=path.join(root,'.superpowers','account-fixture');
+  fs.mkdirSync(screenshots,{recursive:true});
+  await ui.call('Page.captureScreenshot',{format:'png'}).then(r=>fs.writeFileSync(path.join(screenshots,'screenshot.png'),Buffer.from(r.data,'base64')));
   await quit();targets=await start();
   const bound=new Set();
   for(let n=1;n<=4;n++){
