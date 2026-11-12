@@ -5,3 +5,8 @@ dist/
 dist-linux/
 .superpowers/
 release-output/
+
+# Protótipo Tauri (saídas geradas)
+/prototype/ui/
+/prototype/src-tauri/target/
+/prototype/output/
