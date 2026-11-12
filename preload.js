@@ -1,5 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const uiArgument = process.argv.find(arg => arg.startsWith('--app-ui-url='));
+if (process.isMainFrame && uiArgument && location.href === uiArgument.slice('--app-ui-url='.length)) {
 contextBridge.exposeInMainWorld('kick', {
   getState: () => ipcRenderer.invoke('state:get'),
   addChannel: (slug) => ipcRenderer.invoke('channels:add', slug),
@@ -34,3 +36,5 @@ contextBridge.exposeInMainWorld('kick', {
   onStatus: (cb) => ipcRenderer.on('status', (_e, s) => cb(s)),
   onChat: (cb) => ipcRenderer.on('chat', (_e, m) => cb(m)),
 });
+
+}
