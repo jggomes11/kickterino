@@ -3,7 +3,13 @@
 const MAX_MESSAGES = 400;
 
 const $ = (sel) => document.querySelector(sel);
-let state = { channels: [], farming: true, maxWatchers: 10 };
+const accountView = AccountView.createAccountViewGuard();
+// All awaited UI operations capture the current view, including reports and chat replies.
+const api = Object.fromEntries(Object.entries(window.kick).map(([key, method]) => [key,
+  typeof method !== 'function' || key.startsWith('on') || key === 'selectAccount' ? method
+    : (...args) => accountView.run(() => method(...args)),
+]));
+let state = { channels: [], farming: true, maxWatchers: 2 };
 let active = null;
 const buffers = new Map();   // slug -> array de elementos .msg
 const unread = new Set();
@@ -115,7 +121,7 @@ function renderTabs() {
     add.replaceChildren(input);
     input.focus();
     const done = async (commit) => {
-      if (commit && input.value.trim()) { state = await window.kick.addChannel(input.value); select(state.channels[state.channels.length - 1].slug); }
+      if (commit && input.value.trim()) { const next = await api.addChannel(input.value); if (next && applyState(next)) select(state.channels[state.channels.length - 1].slug); }
       renderTabs();
     };
     input.onkeydown = (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); };
@@ -147,7 +153,7 @@ function renderHeader() {
   if (ch.ageGate) {
     const warn = el('button', 'age-gate', '⚠ Canal +18: clique para confirmar a idade');
     warn.title = 'A Kick pede confirmação de idade antes de tocar esta live. Sem isso, ela não conta pontos.';
-    warn.onclick = () => window.kick.showChannel(ch.slug);
+    warn.onclick = () => api.showChannel(ch.slug);
     title.prepend(warn, ' ');
   }
   $('#input').placeholder = ch.chatroomId ? `Enviar mensagem em ${ch.displayName}…` : 'Carregando canal…';
@@ -244,10 +250,56 @@ function renderPanel() {
     + (gained ? ` (+${gained.toLocaleString('pt-BR')} nesta sessão)` : '');
 }
 
+function renderAccounts() {
+  const nav = $('#accounts');
+  const accounts = state.accounts || Array.from({length: 4}, (_, index) => ({id: `account-${index + 1}`, label: `Conta ${index + 1}`}));
+  for (const account of accounts) {
+    let button = nav.querySelector(`[data-account-id="${account.id}"]`);
+    if (!button) {
+      button = el('button', 'account-tab'); button.type = 'button';
+      button.dataset.accountId = account.id;
+      button.onclick = () => selectAccount(account.id);
+      nav.append(button);
+    }
+    const selected = account.id === accountView.accountId;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-pressed', String(selected));
+    const detail = account.sessionChecking ? 'Verificando sessão…' : !account.loggedIn ? 'Conectar Kick'
+      : !account.farming ? 'Coleta pausada' : `${account.watching} lives · +${fmt(account.today || 0)} pts hoje`;
+    button.replaceChildren(el('b', null, account.username || account.label), el('small', null, detail));
+    button.title = `${account.label}${account.username ? ': ' + account.username : ''} — ${detail}`;
+  }
+}
+
+async function selectAccount(id) {
+  const previous = accountView.accountId;
+  if (id === previous) return true;
+  const ticket = accountView.select(id);
+  // Dismiss the old account's UI without issuing commands against the new account.
+  $('#modal').hidden = true; modalKind = null; introShown = false;
+  lastGiveawayAlert.clear();
+  buffers.clear(); unread.clear(); sleepPicked.clear(); active = null;
+  $('#messages').replaceChildren(); $('#input').value = ''; $('#toasts').replaceChildren();
+  state = { channels: [], accounts: state.accounts, farming: false, accountId: id };
+  renderAccounts(); renderTabs(); renderHeader(); renderPanel();
+  try {
+    const next = await api.selectAccount(id);
+    return accountView.isCurrent(ticket) && applyState(next);
+  } catch {
+    if (!accountView.isCurrent(ticket)) return false;
+    accountView.select(previous);
+    applyState(await api.selectAccount(previous));
+    toast('Não foi possível trocar a conta. Tente novamente.');
+    return false;
+  }
+}
+
 function applyState(s) {
+  if (!accountView.accept(s)) return false;
   const prevLive = new Map(state.channels.map((c) => [c.slug, c.live]));
   celebrate(state, s);
   state = s;
+  renderAccounts();
   for (const ch of state.channels) {
     const was = prevLive.get(ch.slug);
     if (was === false && ch.live) pushMessage(ch.slug, systemMessage(`${ch.displayName} entrou ao vivo.`));
@@ -279,6 +331,7 @@ function applyState(s) {
   renderTabs();
   renderHeader();
   renderPanel();
+  return true;
 }
 
 // ---------- Bônus ativos e previsão ----------
@@ -302,7 +355,7 @@ function renderBonusBox() {
     chip.append(el('span', 'bonus-name', shortName(b.name)), el('span', 'bonus-left', on ? clock(b.endsAt - now) : 'inativo'));
     const add = el('button', 'bonus-add', '+1h');
     add.title = `Registrar uma compra de ${b.name} feita fora do app (o app percebe sozinho as compras pelo saldo)`;
-    add.onclick = async () => applyState(await window.kick.addPurchase(b.cost));
+    add.onclick = async () => applyState(await api.addPurchase(b.cost));
     chip.append(add);
     box.append(chip);
   }
@@ -315,7 +368,7 @@ function renderBonusBox() {
       const row = el('div', 'purchase', `${shortName(name)} · ${ch ? ch.displayName : 'registrado à mão'} · ${timeStr(new Date(p.t))}`);
       const x = el('button', 'purchase-x', '✕');
       x.title = 'Não foi uma compra de bônus? Remove do cronômetro e do relatório';
-      x.onclick = async () => applyState(await window.kick.removePurchase(p.t));
+      x.onclick = async () => applyState(await api.removePurchase(p.t));
       row.append(x);
       list.append(row);
     }
@@ -334,7 +387,7 @@ function openModal(kind, ...nodes) {
   $('#modal').hidden = false;
 }
 function closeModal() {
-  if (modalKind === 'intro') window.kick.introDone().then(applyState);
+  if (modalKind === 'intro') api.introDone().then(applyState);
   modalKind = null;
   $('#modal').hidden = true;
 }
@@ -354,7 +407,7 @@ function renderSleepList() {
   const seq = state.storeSequence;
   if (seq) {
     wrap.append(el('p', null, `Loja ${seq.done} de ${seq.total} aberta. Compre o bônus e feche a janela da loja: a próxima abre sozinha.`),
-      button('Parar sequência', null, async () => applyState(await window.kick.cancelStoreSequence())));
+      button('Parar sequência', null, async () => applyState(await api.cancelStoreSequence())));
     return $('#modal-card').replaceChildren(wrap);
   }
   if (!rich.length) {
@@ -373,7 +426,7 @@ function renderSleepList() {
   }
   wrap.append(list);
   const go = button(`Abrir ${sleepPicked.size} loja${sleepPicked.size === 1 ? '' : 's'} em sequência`, 'primary', async () => {
-    applyState(await window.kick.openStoreSequence(state.channels.filter((c) => sleepPicked.has(c.slug)).map((c) => c.slug)));
+    applyState(await api.openStoreSequence(state.channels.filter((c) => sleepPicked.has(c.slug)).map((c) => c.slug)));
   });
   go.disabled = !sleepPicked.size;
   const all = button('Marcar todos', null, () => { for (const c of rich) sleepPicked.add(c.slug); renderSleepList(); });
@@ -385,7 +438,8 @@ function renderSleepList() {
 
 // Relatório da semana, com opção de salvar o card como imagem para postar.
 async function showReport() {
-  const r = await window.kick.getReport();
+  const r = await api.getReport();
+  if (!r) return;
   const card = el('div', 'report');
   const head = el('div', 'report-head');
   head.append(el('span', 'brand', 'K'), el('b', null, ' Kickterino · minha semana'), el('span', 'report-date', new Date().toLocaleDateString('pt-BR')));
@@ -419,7 +473,7 @@ async function showReport() {
   const actions = el('div', 'modal-actions');
   actions.append(button('💾 Salvar imagem', 'primary', async () => {
     const rect = card.getBoundingClientRect();
-    const file = await window.kick.saveReport({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+    const file = await api.saveReport({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
     if (file) actions.replaceChildren(el('span', 'saved', `Imagem salva em ${file}`), button('Fechar', null, closeModal));
   }), button('Fechar', null, closeModal));
   openModal('report', card, actions);
@@ -464,15 +518,22 @@ function chatAlert(slug, data, flags) {
   if (!state.notifyChat) return;
   const ch = state.channels.find((c) => c.slug === slug);
   const name = ch ? ch.displayName : slug;
-  const visible = document.hasFocus() && slug === active;
-  if (visible) return;
+  if (document.hasFocus() && slug === active) return;
   if (flags.giveaway && !flags.mention) {
     if (Date.now() - (lastGiveawayAlert.get(slug) || 0) < 5 * 60 * 1000) return;
     lastGiveawayAlert.set(slug, Date.now());
   }
-  const n = new Notification(flags.mention ? `${data.sender.username} mencionou você em ${name}` : `🎉 Sorteio no chat de ${name}`,
-    { body: String(data.content || '').replace(/\[emote:\d+:([^\]]*)\]/g, '$1').slice(0, 140), icon: '../build/icon.png' });
-  n.onclick = () => { window.focus(); select(slug); };
+  const ownerAccountId = accountView.accountId;
+  const accountName = state.username || ownerAccountId;
+  const title = flags.mention ? `${data.sender.username} mencionou você em ${name}` : `🎉 Sorteio no chat de ${name}`;
+  const n = new Notification(`${accountName} · ${title}`,
+    { body: String(data.content || '').replace(/\[emote:[^:]+:([^\]]*)\]/g, '$1').slice(0, 140), icon: '../build/icon.png' });
+  n.onclick = async () => {
+    window.focus();
+    const activation = selectAccount(ownerAccountId);
+    const ticket = accountView.current();
+    if (await activation && accountView.isCurrent(ticket) && state.channels.some(c => c.slug === slug)) select(slug);
+  };
 }
 
 // ---------- Comemorações: aviso na tela e confete ----------
@@ -528,36 +589,36 @@ function celebrate(prev, next) {
 }
 
 // ---------- Eventos ----------
-$('#btn-login').onclick = () => window.kick.showLogin();
-$('#btn-logout').onclick = async () => applyState(await window.kick.logout());
-$('#btn-refresh').onclick = async () => applyState(await window.kick.refresh());
-$('#farming').onchange = async (e) => applyState(await window.kick.setFarming(e.target.checked));
-$('#btn-limit').onclick = async () => applyState(await (state.limitTest ? window.kick.stopLimitTest() : window.kick.startLimitTest()));
-$('#autostart').onchange = async (e) => applyState(await window.kick.setAutostart(e.target.checked));
-$('#btn-quit').onclick = () => window.kick.quit();
-$('#notify-chat').onchange = async (e) => applyState(await window.kick.setNotifyChat(e.target.checked));
-$('#sleep-mode').onchange = async (e) => applyState(await window.kick.setSleepMode(e.target.checked));
+$('#btn-login').onclick = () => api.showLogin();
+$('#btn-logout').onclick = async () => applyState(await api.logout());
+$('#btn-refresh').onclick = async () => applyState(await api.refresh());
+$('#farming').onchange = async (e) => applyState(await api.setFarming(e.target.checked));
+$('#btn-limit').onclick = async () => applyState(await (state.limitTest ? api.stopLimitTest() : api.startLimitTest()));
+$('#autostart').onchange = async (e) => applyState(await api.setAutostart(e.target.checked));
+$('#btn-quit').onclick = () => api.quit();
+$('#notify-chat').onchange = async (e) => applyState(await api.setNotifyChat(e.target.checked));
+$('#sleep-mode').onchange = async (e) => applyState(await api.setSleepMode(e.target.checked));
 $('#btn-sleep').onclick = () => { openModal('sleep'); renderSleepList(); };
 $('#btn-report').onclick = showReport;
-$('#btn-fav').onclick = async () => active && applyState(await window.kick.toggleFavorite(active));
-$('#notify-bonus').onchange = async (e) => applyState(await window.kick.setNotifyBonus(e.target.checked));
-$('#rotation').onchange = async (e) => applyState(await window.kick.setRotation(e.target.checked));
-$('#bonus-target').onchange = async (e) => applyState(await window.kick.setBonusTarget(Number(e.target.value)));
-$('#low-quality').onchange = async (e) => applyState(await window.kick.setLowQuality(e.target.checked));
-$('#max-watchers').onchange = async (e) => applyState(await window.kick.setMaxWatchers(e.target.value));
+$('#btn-fav').onclick = async () => active && applyState(await api.toggleFavorite(active));
+$('#notify-bonus').onchange = async (e) => applyState(await api.setNotifyBonus(e.target.checked));
+$('#rotation').onchange = async (e) => applyState(await api.setRotation(e.target.checked));
+$('#bonus-target').onchange = async (e) => applyState(await api.setBonusTarget(Number(e.target.value)));
+$('#low-quality').onchange = async (e) => applyState(await api.setLowQuality(e.target.checked));
+$('#max-watchers').onchange = async (e) => applyState(await api.setMaxWatchers(e.target.value));
 $('#btn-panel').onclick = () => {
   const p = $('#panel');
   p.hidden = !p.hidden;
   $('#btn-panel').textContent = p.hidden ? 'Pontos ▸' : 'Pontos ◂';
 };
-$('#btn-points').onclick = () => active && window.kick.openStore(active);
-$('#btn-show').onclick = () => active && window.kick.showChannel(active);
+$('#btn-points').onclick = () => active && api.openStore(active);
+$('#btn-show').onclick = () => active && api.showChannel(active);
 $('#btn-remove').onclick = async () => {
   if (!active) return;
   const slug = active;
   buffers.delete(slug);
   active = null;
-  applyState(await window.kick.removeChannel(slug));
+  if (!applyState(await api.removeChannel(slug))) return;
   if (state.channels.length) select(state.channels[0].slug); else $('#messages').replaceChildren();
 };
 $('#composer').onsubmit = async (e) => {
@@ -567,13 +628,15 @@ $('#composer').onsubmit = async (e) => {
   const text = input.value.trim();
   if (!ch || !ch.chatroomId || !text) return;
   input.value = '';
-  const res = await window.kick.sendChat(ch.chatroomId, text);
-  if (!res.ok) pushMessage(ch.slug, systemMessage(`Falha ao enviar (${res.status}${res.message ? ': ' + res.message : ''}). Você fez login?`));
+  const res = await api.sendChat(ch.chatroomId, text);
+  if (res && !res.ok) pushMessage(ch.slug, systemMessage(`Falha ao enviar (${res.status}${res.message ? ': ' + res.message : ''}). Você fez login?`));
 };
 
-window.kick.onStatus(applyState);
-window.kick.onSelect((slug) => select(slug));
-window.kick.onChat(({ slug, kind, data }) => {
+api.onAccountSelect(selectAccount);
+api.onStatus(applyState);
+api.onSelect((slug, accountId) => { if (accountId === accountView.accountId) select(slug); });
+api.onChat(({ slug, kind, data }, accountId) => {
+  if (accountId !== accountView.accountId) return;
   if (kind === 'message') {
     const flags = chatFlags(data);
     pushMessage(slug, renderChat(data, flags));
@@ -581,4 +644,4 @@ window.kick.onChat(({ slug, kind, data }) => {
   }
   else if (kind === 'reward') pushMessage(slug, systemMessage(`🎁 ${data.username} resgatou "${data.reward_title}"`));
 });
-window.kick.getState().then((s) => { applyState(s); if (active) select(active); });
+api.getState().then((s) => { applyState(s); if (active) select(active); });

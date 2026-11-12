@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="theme.css">
 </head>
 <body>
+  <nav id="accounts" aria-label="Contas Kick"></nav>
+  <p id="account-hint">Use até quatro contas. As outras continuam coletando quando você alterna.</p>
   <header id="toolbar">
     <span class="brand">K</span><span class="brand-name">Kickterino</span>
     <button id="btn-login" title="Abre a Kick para você fazer login (uma vez só)">Login Kick</button>
@@ -80,6 +82,7 @@
   <div id="toasts"></div>
   <canvas id="confetti"></canvas>
 
+  <script src="../security/account-view.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
