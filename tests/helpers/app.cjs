@@ -103,14 +103,24 @@ function loadApp({ packaged = false, platform = 'win32', configSeed = null, sing
     clearTimeout(timer) { if (timer) timer.cancelled = true; }, setInterval: () => 1, clearInterval() {}, setImmediate, queueMicrotask,
   };
   vm.createContext(context);
-  const runtimeModule = {};
-  const source = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
-  vm.runInContext(source + '\nmodule.exports = { snapshot, poll, refreshChannel, setupSession, status, get config() { return config; }, get client() { return apiClient; }, setMain(win) { mainWin = win; }, get stores() { return storeWindows; } };', context, { filename: path.join(root, 'main.js') });
-  const apiExports = context.module.exports;
-  const runtimes = [], manager = null;
+  const runtimeSource = fs.readFileSync(path.join(root, 'account-runtime.js'), 'utf8')
+    .replace('return runtime;', 'runtime.__test = { poll, refreshChannel, snapshot, setupSession, status, stores: storeWindows, get config() { return config; }, get client() { return apiClient; } }; return runtime;');
+  const runtimeContainer = { exports: {} };
+  vm.runInContext('(function(require,module,__dirname){' + runtimeSource + '\n})', context, { filename: path.join(root, 'account-runtime.js') })(context.require, runtimeContainer, root);
+  const runtimeModule = runtimeContainer.exports;
+  vm.runInContext(fs.readFileSync(path.join(root, 'main.js'), 'utf8') + '\nmodule.exports = { manager, runtimes, setMain(win) { mainWin = win; } };', context, { filename: path.join(root, 'main.js') });
+  const {manager,runtimes} = context.module.exports;
+  for (const runtime of runtimes) getSession(runtime.partition);
   const main = new Window(); main.loadFile(path.join(root, 'renderer/index.html'));
   const api = new Window(); api.loadURL('https://kick.com/login');
-  apiExports.setMain(main);
+  context.module.exports.setMain(main);
+  const apiExports = runtimes[0].__test;
+  // Attach a cookie observer for single-account regression callers without starting players/login windows.
+  apiExports.setupSession();
+  const accountHandler = handlers.get('account:command');
+  for (const command of ['channels:add','channels:remove','farming:set','notifyBonus:set','notifyChat:set','sleepMode:set','favorite:toggle','purchase:add','purchase:remove','stores:sequence','stores:cancel','report:get','report:save','intro:done','maxWatchers:set','rotation:set','bonusTarget:set','limitTest:start','limitTest:stop','lowQuality:set','refresh','login:show','logout','store:open','channel:show','chat:send']) {
+    handlers.set(command, async (event, ...args) => (await accountHandler(event, { accountId:'account-1', command, args })).result);
+  }
   return {
     state, app, session, sessions, handlers, main, api, apiExports, runtimes, manager, dialog: electron.dialog,
     event: () => ({ sender: main.webContents, senderFrame: main.webContents.mainFrame }),
