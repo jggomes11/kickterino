@@ -229,27 +229,10 @@ async function sessionToken() {
   return cookies[0] ? decodeURIComponent(cookies[0].value) : '';
 }
 
-// Faz um fetch de dentro da página kick.com (mesmos cookies/headers de um navegador normal).
-async function kickFetch(apiPath, { method = 'GET', body } = {}) {
-  await withTimeout(apiReady, 20 * 1000);
-  const token = await sessionToken();
-  const code = `(async () => {
-    const xsrf = decodeURIComponent((document.cookie.match(/XSRF-TOKEN=([^;]+)/) || [])[1] || '');
-    const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json' };
-    const token = ${JSON.stringify(token)};
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    if (xsrf) headers['X-XSRF-TOKEN'] = xsrf;
-    const r = await fetch(${JSON.stringify(apiPath)}, {
-      method: ${JSON.stringify(method)}, headers, credentials: 'include',
-      ${body ? `body: ${JSON.stringify(JSON.stringify(body))},` : ''}
-    });
-    return { status: r.status, text: await r.text() };
-  })()`;
-  const res = await withTimeout(apiWin.webContents.executeJavaScript(code, true), 20 * 1000);
-  let json = null;
-  try { json = JSON.parse(res.text); } catch {}
-  return { status: res.status, json };
-}
+// Authenticated application queries never execute in a navigable document.
+const { createPlatformClient } = require('./security/platform');
+const apiClient = createPlatformClient('kick', () => session.fromPartition(PARTITION));
+const kickFetch = (apiPath, options) => apiClient.request(apiPath, options);
 
 // Na janela de cada live: força 160p enquanto ela está oculta e lê o chat do websocket
 // que a própria página da Kick abre (realtime.*.kick.com), repassando mensagens e resgates.
@@ -859,7 +842,6 @@ async function poll() {
   pollStartedAt = startedAt;
   try {
     loggedIn = !!(await sessionToken());
-    await withTimeout(apiReady, 5 * 1000); // sem a página da Kick não há o que consultar agora
     if (!loggedIn) username = null;
     else if (!username) username = await fetchUsername();
     for (const slug of config.channels) await refreshChannel(slug);
