@@ -6,11 +6,12 @@ Fork independente de manutenção de [ViinniSantoos/kickterino](https://github.c
 
 Distribuição deste fork: [Releases de jggomes11/kickterino](https://github.com/jggomes11/kickterino/releases). Esta alteração ainda precisa da validação real no Windows antes da publicação estável.
 
-![Interface do Kickterino](docs/app.png)
+![Disposição da interface com contas fictícias de teste](docs/account-fixture.png)
 
 ## Recursos
 
-- **Chat em abas** de vários canais, com envio de mensagens e aviso de resgates.
+- **Lista lateral de canais com busca**, favoritos e grupos ao vivo/offline, com chat ao centro, envio de mensagens e aviso de resgates.
+- **Disposição como no Twitchterino:** cabeçalho compacto, quatro contas, configurações na engrenagem e painel de bônus à direita.
 - **Painel de pontos** com saldo, status e ganho de cada canal.
 - **Foco em bônus:** as vagas vão para os canais mais perto de 300 pontos, depois 500, 1.000 e cada milhar seguinte.
 - **Modo leve:** lives ocultas em 160p, sem som, sem imagens e sem anúncios.

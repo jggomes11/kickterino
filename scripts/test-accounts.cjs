@@ -20,6 +20,21 @@ async function start(){
  console.log('Connecting UI',target.webSocketDebuggerUrl);
  ui=await connect(target.webSocketDebuggerUrl);connections.push(ui);await ui.call('Runtime.enable');
  await until(()=>evaluate(ui,'document.querySelectorAll("#accounts button").length === 4'),'four controls');
+ const bounds=await evaluate(ui,'({accounts:document.querySelector("#accounts").getBoundingClientRect().bottom,panel:document.querySelector("#panel").getBoundingClientRect().top,hidden:document.querySelector("#panel").hidden})');
+ assert(bounds.hidden || bounds.panel >= bounds.accounts,'bonus panel must not cover the account selector');
+ // Layout follows Twitchterino: compact toolbar, account row, searchable channel rail.
+ assert.equal(await evaluate(ui, '!!document.querySelector("#shell > #rail #rail-search")'),true);
+ await evaluate(ui, 'document.querySelector("#btn-settings").click();true');
+ assert.equal(await evaluate(ui, 'document.querySelector("#settings").hidden'),false);
+ for(const id of ['max-watchers','rotation','low-quality','autostart','notify-bonus','notify-chat','sleep-mode','btn-refresh','btn-logout']){
+  assert.equal(await evaluate(ui, '!!document.querySelector("#settings #'+id+'")'),true,id);
+ }
+ await evaluate(ui, 'document.querySelector("#btn-settings").click();true');
+ assert.equal(await evaluate(ui, 'document.querySelector("#settings").hidden'),true);
+ await evaluate(ui, '{const search=document.querySelector("#rail-search");search.value="yetz";search.dispatchEvent(new Event("input"));}true');
+ await until(()=>evaluate(ui, 'document.querySelectorAll("#tabs .ch").length === 1 && document.querySelector("#tabs .ch").dataset.slug === "yetz"'),'channel search');
+ await evaluate(ui, '{const search=document.querySelector("#rail-search");search.value="";search.dispatchEvent(new Event("input"));}true');
+
  return targets;
 }
 async function quit(){
@@ -48,6 +63,18 @@ async function quit(){
   assert.equal(all.accounts.length,4);assert(all.accounts.every(a=>a.watching===2));
   assert.deepEqual(ui.exceptions,[]);
   await evaluate(ui, 'document.querySelectorAll("#modal button").forEach(b => { if (b.textContent === "Entendi") b.click(); }); true');
+  await ui.call('Emulation.setDeviceMetricsOverride',{width:820,height:800,deviceScaleFactor:1,mobile:false});
+  await evaluate(ui,'document.querySelector("#btn-report").click();true');
+  await until(()=>evaluate(ui,'!document.querySelector("#modal").hidden && !!document.querySelector("#modal .report")'),'report dialog');
+  assert.equal(await evaluate(ui,'(()=>{const r=document.querySelector("#modal .modal-actions button").getBoundingClientRect();return !!document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest("#modal");})()'),true,'report controls must be above the bonus panel');
+  await evaluate(ui,'document.querySelectorAll("#modal button").forEach(b=>{if(b.textContent==="Fechar")b.click();});true');
+  const narrow=await evaluate(ui, '({add:document.querySelector(".add-ch").getBoundingClientRect().height,search:document.querySelector(".search").getBoundingClientRect().height,offline:document.querySelector(".toggle-off").getBoundingClientRect().height})');
+  assert(narrow.add>0 && narrow.search>0 && narrow.offline>0,'narrow windows must retain add/search/offline controls');
+  await evaluate(ui,'document.querySelector(".toggle-off").click();true');
+  assert.equal(await evaluate(ui,'!!document.querySelector(".ch[data-slug=cogu]")'),true);
+  const overlap=await evaluate(ui, '({accounts:document.querySelector("#accounts").getBoundingClientRect().bottom,panel:document.querySelector("#panel").getBoundingClientRect().top,hidden:document.querySelector("#panel").hidden})');
+  assert(overlap.hidden || overlap.panel >= overlap.accounts,'narrow bonus panel must not cover account selector');
+  await ui.call('Emulation.clearDeviceMetricsOverride');
   const screenshots=path.join(root,'.superpowers','account-fixture');
   fs.mkdirSync(screenshots,{recursive:true});
   await ui.call('Page.captureScreenshot',{format:'png'}).then(r=>fs.writeFileSync(path.join(screenshots,'screenshot.png'),Buffer.from(r.data,'base64')));

@@ -93,36 +93,92 @@ function pushMessage(slug, node) {
   }
 }
 
-// ---------- Abas ----------
+// ---------- Canais na lateral ----------
+let offlineOpen = false;
+try { offlineOpen = localStorage.getItem('offlineOpen') === '1'; } catch {}
+let railFilter = '';
+
+function avatar(ch, size = '') {
+  const av = el('div', `av ${size}`);
+  const pct = ch.goal && ch.points != null ? Math.min(100, Math.round((ch.points / ch.goal) * 100)) : 0;
+  av.style.setProperty('--p', `${pct}%`);
+  if (ch.avatar) { const img = el('img'); img.src = ch.avatar; img.alt = ''; img.loading = 'lazy'; av.append(img); }
+  else av.append(el('span', 'initial', ch.displayName.slice(0, 1).toUpperCase()));
+  if (ch.subscribed) { const c = el('span', 'crown', '👑'); c.title = 'Você é sub'; av.append(c); }
+  if (ch.live) av.append(el('span', 'live-dot'));
+  return av;
+}
+
+function pendingPlaybackLabel() {
+  if (state.sessionChecking) return 'VERIFICANDO SESSÃO';
+  if (!state.farming) return 'PAUSADO';
+  if (!state.loggedIn) return 'ENTRAR';
+  return state.rotation ? 'NA FILA' : 'SEM VAGA';
+}
+
+function channelCard(ch) {
+  const favs = new Set(state.favorites || []);
+  const queued = ch.live && !ch.watching;
+  const card = el('div', 'ch' + (ch.live ? ' live' : '') + (ch.watching ? ' watching' : '') + (queued ? ' queued' : '')
+    + (ch.slug === active ? ' active' : '') + (ch.subscribed ? ' is-sub' : '') + (ch.earning === 'earning' ? ' earning' : ''));
+  const info = el('div', 'ch-info');
+  const name = el('div', 'ch-name');
+  if (favs.has(ch.slug)) name.append(el('span', 'fav-star', '★'));
+  name.append(el('span', 'ch-label', ch.displayName));
+  if (unread.has(ch.slug) && ch.slug !== active) name.append(el('span', 'unread-dot'));
+  const sub = el('div', 'ch-sub');
+  if (ch.ageGate) sub.append(el('span', 'warn', '⚠ confirmar idade'));
+  else if (ch.earning === 'earning') sub.append(el('span', 'earn', '● ganhando'));
+  else if (ch.earning === 'warming') sub.append(el('span', 'warm', '◌ aquecendo'));
+  else if (ch.earning === 'idle') sub.append(el('span', 'idle', '○ sem pontos'));
+  else if (ch.live) sub.append(el('span', 'viewers', `${fmt(ch.viewers)} assistindo${queued ? ' · ' + pendingPlaybackLabel().toLowerCase() : ''}`));
+  else sub.append(el('span', 'off', 'offline'));
+  info.append(name, sub);
+  const side = el('div', 'ch-side');
+  if (ch.points != null) side.append(el('span', 'ch-pts', fmt(ch.points)));
+  card.append(avatar(ch), info, side);
+  const goalLine = ch.goalLeft != null ? `\nFaltam ${fmt(ch.goalLeft)} pts para ${fmt(ch.goal)}` : '';
+  card.title = (ch.live ? `AO VIVO · ${fmt(ch.viewers)} espectadores\n${ch.title}` : 'offline') + goalLine
+    + (ch.subscribed ? `\nSub: pontos ×${'2'}` : '');
+  card.dataset.slug = ch.slug;
+  card.onclick = () => select(ch.slug);
+  return card;
+}
+
 function renderTabs() {
   const nav = $('#tabs');
   nav.replaceChildren();
-  // Favoritos primeiro (só na tela: a ordem da lista, usada sem o foco em bônus, não muda).
   const favs = new Set(state.favorites || []);
-  const ordered = [...state.channels.filter((c) => favs.has(c.slug)), ...state.channels.filter((c) => !favs.has(c.slug))];
-  for (const ch of ordered) {
-    const queued = ch.live && !ch.watching;
-    const t = el('div', 'tab' + (ch.live ? ' live' : '') + (queued ? ' queued' : '') + (ch.ageGate ? ' age' : '') + (ch.slug === active ? ' active' : ''));
-    if (favs.has(ch.slug)) t.append(el('span', 'fav-star', '★ '));
-    const name = el('span', unread.has(ch.slug) && ch.slug !== active ? 'unread' : '', ch.displayName);
-    t.append(name);
-    if (ch.subscribed) { const s = el('span', 'tab-sub', 'SUB'); s.title = 'Você é sub: pontos em dobro'; t.append(s); }
-    if (ch.live) t.append(el('span', 'dot'));
-    t.title = !ch.live ? 'offline'
-      : `AO VIVO · ${ch.viewers} espectadores\n${ch.title}`
-        + (queued ? '\nNa fila: entra quando abrir uma vaga (o chat aparece quando estiver assistindo)' : '');
-    t.onclick = () => select(ch.slug);
-    nav.append(t);
+  const q = railFilter.trim().toLowerCase();
+  const list = state.channels.filter((c) => !q || c.displayName.toLowerCase().includes(q) || c.slug.includes(q));
+  const byLive = (a, b) => (b.live - a.live) || (b.watching - a.watching) || (b.viewers - a.viewers);
+  const pinned = list.filter((c) => favs.has(c.slug) || c.subscribed).sort(byLive);
+  const rest = list.filter((c) => !pinned.includes(c));
+  const live = rest.filter((c) => c.live).sort(byLive);
+  const off = rest.filter((c) => !c.live);
+  const group = (title, items, extra) => {
+    if (!items.length) return;
+    const h = el('div', 'group', title);
+    if (extra) h.append(extra);
+    nav.append(h, ...items.map(channelCard));
+  };
+  group('📌 Fixados', pinned);
+  group(`🔴 Ao vivo · ${live.length}`, live);
+  if (off.length) {
+    const h = el('button', 'group toggle-off', `Offline · ${off.length} ${offlineOpen || q ? '▴' : '▾'}`);
+    h.onclick = () => { offlineOpen = !offlineOpen; try { localStorage.setItem('offlineOpen', offlineOpen ? '1' : '0'); } catch {} renderTabs(); };
+    nav.append(h);
+    if (offlineOpen || q) nav.append(...off.map(channelCard));
   }
-  const add = el('div', 'tab add', '+');
-  add.title = 'Adicionar canal';
+  if (!list.length) nav.append(el('div', 'rail-empty', 'Nenhum canal com esse nome.'));
+  const add = el('button', 'add-ch', '＋ Adicionar canal');
   add.onclick = () => {
-    const input = el('input');
-    input.placeholder = 'nome do canal';
-    add.replaceChildren(input);
+    const input = el('input', 'add-input');
+    input.placeholder = 'nome ou link do canal';
+    add.replaceWith(input);
     input.focus();
     const done = async (commit) => {
-      if (commit && input.value.trim()) { const next = await api.addChannel(input.value); if (next && applyState(next)) select(state.channels[state.channels.length - 1].slug); }
+      if (commit && input.value.trim()) { if (!applyState(await api.addChannel(input.value))) return; select(state.channels[state.channels.length - 1].slug); }
       renderTabs();
     };
     input.onkeydown = (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); };
@@ -130,6 +186,7 @@ function renderTabs() {
   };
   nav.append(add);
 }
+$('#rail-search').oninput = (e) => { railFilter = e.target.value; renderTabs(); };
 
 function select(slug) {
   active = slug;
@@ -245,10 +302,21 @@ function renderPanel() {
   renderLimitTest();
   renderBonusBox();
   $('#sleep-box').hidden = !state.sleepMode;
-  $('#summary').textContent = !state.loggedIn ? `${live} ao vivo · Faça login para farmar pontos` : `${live} ao vivo · ${watching} assistindo`
-    + (queued ? (state.rotation ? ` · ${queued} na fila (foco no próximo bônus)` : ` · ${queued} sem vaga`) : '')
-    + ` · ${totalPts.toLocaleString('pt-BR')} pts`
-    + (gained ? ` (+${gained.toLocaleString('pt-BR')} nesta sessão)` : '');
+  const summary = $('#summary');
+  summary.replaceChildren();
+  const chip = (icon, value, label, cls = '') => {
+    const item = el('span', 'stat ' + cls);
+    item.append(el('i', null, icon), el('b', null, value), el('small', null, label));
+    summary.append(item);
+  };
+  chip('🔴', String(live), 'ao vivo');
+  if (state.loggedIn) {
+    chip('▶', String(watching), queued ? `assistindo · ${queued} aguardando` : 'assistindo', watching ? 'on' : '');
+    chip('💚', fmt(totalPts), 'pontos');
+    chip('📈', `+${fmt(state.today || 0)}`, 'hoje', 'up');
+  }
+  summary.title = !state.loggedIn ? 'Entre com a Kick para juntar pontos' : `+${fmt(gained)} pontos nesta sessão`;
+
 }
 
 function renderAccounts() {
@@ -279,6 +347,7 @@ async function selectAccount(id) {
   // Dismiss the old account's UI without issuing commands against the new account.
   $('#modal').hidden = true; modalKind = null; introShown = false;
   lastGiveawayAlert.clear();
+  setSettings(false); railFilter = ''; $('#rail-search').value = '';
   buffers.clear(); unread.clear(); sleepPicked.clear(); active = null;
   $('#messages').replaceChildren(); $('#input').value = ''; $('#toasts').replaceChildren();
   state = { channels: [], accounts: state.accounts, farming: false, accountId: id };
@@ -486,22 +555,18 @@ function showIntro(kind) {
   if (kind === 'welcome') {
     wrap.append(el('h3', null, 'Bem-vindo ao Kickterino 👋'));
     const steps = [
-      ['1. Faça login', 'Clique em Login Kick e entre com sua conta (e-mail, Google, Apple ou Discord).'],
+      ['1. Faça login', 'Clique em Entrar com a Kick e entre com sua conta (e-mail, Google, Apple ou Discord).'],
       ['2. Escolha seu bônus', 'Em Bônus, deixe Automático ou escolha XP, Capture Boost ou Secret Lure.'],
-      ['3. Acompanhe no painel', 'Em Pontos ▸ você vê o saldo de cada canal, a previsão do próximo bônus e quanto tempo falta no seu bônus ativo.'],
+      ['3. Acompanhe no painel', 'Em Bônus ▸ você vê o saldo de cada canal, a previsão do próximo bônus e quanto tempo falta no seu bônus ativo.'],
       ['4. Compre na loja', 'O ícone de pontos ao lado do chat abre a loja do canal. A compra é sempre feita por você.'],
     ];
     for (const [t, d] of steps) { const s = el('div', 'intro-step'); s.append(el('b', null, t), el('span', null, d)); wrap.append(s); }
   } else {
     wrap.append(el('h3', null, `Novidades da versão ${state.version} ✨`));
     const news = [
-      '⏱ Bônus ativos: o app percebe a compra pelo saldo, mostra quanto tempo falta e avisa 5 min antes de acabar.',
-      '🔮 Previsão: cada canal mostra em quanto tempo chega ao próximo bônus.',
-      '📊 Relatório da semana, com imagem pronta para compartilhar.',
-      '🌙 Modo antes de dormir (opcional): abre as lojas uma de cada vez para empilhar bônus.',
-      '★ Favoritos: ficam no começo das abas e avisam quando entram ao vivo.',
-      '🎉 Destaque e aviso quando alguém menciona você ou quando aparece um sorteio no chat.',
-      '🤝 Novos parceiros do PokeIdle entram sozinhos na sua lista.',
+      'Canais na lateral, com busca e favoritos; chat no centro e bônus à direita.',
+      'Opções de coleta, avisos e inicialização ficam na engrenagem de configurações.',
+      'Até quatro contas independentes: as outras continuam coletando enquanto você troca a conta exibida.',
     ];
     const ul = el('ul');
     for (const n of news) ul.append(el('li', null, n));
@@ -607,11 +672,34 @@ $('#rotation').onchange = async (e) => applyState(await api.setRotation(e.target
 $('#bonus-target').onchange = async (e) => applyState(await api.setBonusTarget(Number(e.target.value)));
 $('#low-quality').onchange = async (e) => applyState(await api.setLowQuality(e.target.checked));
 $('#max-watchers').onchange = async (e) => applyState(await api.setMaxWatchers(e.target.value));
-$('#btn-panel').onclick = () => {
-  const p = $('#panel');
-  p.hidden = !p.hidden;
-  $('#btn-panel').textContent = p.hidden ? 'Pontos ▸' : 'Pontos ◂';
+const setPanel = (open) => {
+  $('#panel').hidden = !open;
+  $('#btn-panel').textContent = open ? 'Bônus ◂' : 'Bônus ▸';
+  try { localStorage.setItem('panelOpen', open ? '1' : '0'); } catch {}
 };
+$('#btn-panel').onclick = () => setPanel($('#panel').hidden);
+try { setPanel(localStorage.getItem('panelOpen') !== '0'); } catch { setPanel(true); }
+const setSettings = open => {
+  $('#settings').hidden = !open;
+  $('#btn-settings').classList.toggle('on', open);
+  $('#btn-settings').setAttribute('aria-expanded', String(open));
+};
+$('#btn-settings').onclick = e => { e.stopPropagation(); setSettings($('#settings').hidden); };
+document.addEventListener('click', (e) => {
+  if (!$('#settings').hidden && !e.target.closest('#settings')) { setSettings(false); }
+});
+// Atalhos: Ctrl+K busca canal; Alt+↑/↓ troca de canal.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') setSettings(false);
+  if (e.ctrlKey && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#rail-search').focus(); $('#rail-search').select(); }
+  if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+    const cards = [...document.querySelectorAll('#tabs .ch')];
+    const order = cards.map((c) => c.dataset.slug);
+    const i = order.indexOf(active);
+    const next = order[(i + (e.key === 'ArrowDown' ? 1 : -1) + order.length) % order.length];
+    if (next) { e.preventDefault(); select(next); }
+  }
+});
 $('#btn-points').onclick = () => active && api.openStore(active);
 $('#btn-show').onclick = () => active && api.showChannel(active);
 $('#btn-remove').onclick = async () => {
