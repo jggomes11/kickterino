@@ -2,7 +2,7 @@
 
 ## Decisão e objetivo
 
-Em 11/11/2026, o usuário aprovou replicar as correções de tokens e o formato final de múltiplas contas do Twitchterino. Este documento registra esse escopo; o trabalho atual é planejamento, sem autorização inferida para publicar releases.
+Em 11/11/2026, o usuário aprovou replicar as correções de tokens e o formato final de múltiplas contas do Twitchterino. Este documento registra esse escopo; a implementação foi autorizada após aprovação do plano. Publicar releases não foi autorizado por inferência.
 
 Até quatro contas opcionais numa única janela, com coleta simultânea independente. Alternar a conta exibida não interrompe as demais. Preservar as funcionalidades próprias da Kick: chat, pontos, players reais, rodízio, qualidade reduzida, favoritos, notificações, lojas, compras, relatórios e teste de limite.
 
