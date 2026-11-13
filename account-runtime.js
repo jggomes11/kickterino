@@ -778,7 +778,7 @@ function reconcileWatchers() {
   // Com mais vagas que isso, ficar sem ganhar é esperado, então não mexe.
   for (const slug of [...watchers.keys()]) {
     if (isShown(slug)) continue;
-    const idle = loggedIn && !limitTest && config.maxWatchers <= 2 && earningState(slug, now) === 'idle';
+    const idle = !status.get(slug)?.subscribed && loggedIn && !limitTest && config.maxWatchers <= 2 && earningState(slug, now) === 'idle';
     const s = status.get(slug);
     if (idle && s) s.cooldownUntil = now + IDLE_COOLDOWN_MS; // senão voltaria na mesma hora
     if (idle || turnTime(slug, now) >= RECYCLE_MS) stopWatcher(slug);
@@ -792,16 +792,16 @@ function reconcileWatchers() {
   // Sem foco, as vagas seguem a ordem da lista de canais e ninguém troca de lugar.
   const focusInfo = (slug) => {
     const s = status.get(slug) || {};
-    const cooling = (s.cooldownUntil || 0) > now;
+    const cooling = !s.subscribed && (s.cooldownUntil || 0) > now;
     return { ...s, cooling, bonus: hasBonus(s), sub: !!s.subscribed };
   };
   const byGoal = (a, b) => compareGoal(focusInfo(a), focusInfo(b));
   const waiting = config.channels.filter((slug) => !watchers.has(slug) && (status.get(slug) || {}).live);
-  if (config.rotation) waiting.sort(byGoal);
+  waiting.sort((a,b)=>Number(focusInfo(b).sub)-Number(focusInfo(a).sub) || (config.rotation?byGoal(a,b):0));
   while (watchers.size < config.maxWatchers && waiting.length) startWatcher(waiting.shift());
-  if (!config.rotation) return;
 
   for (const slug of rotatable().sort((a, b) => byGoal(b, a))) {
+    if (!config.rotation && (!waiting.length || !focusInfo(waiting[0]).sub)) break;
     if (!waiting.length || !worthSwitching(focusInfo(waiting[0]), focusInfo(slug))) break;
     stopWatcher(slug);
     startWatcher(waiting.shift());
