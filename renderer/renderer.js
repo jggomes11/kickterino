@@ -374,7 +374,10 @@ async function selectAccount(id) {
 }
 
 function applyState(s) {
+  if (s && s.accountId === state.accountId && Number.isSafeInteger(s.sessionRevision)
+    && Number.isSafeInteger(state.sessionRevision) && s.sessionRevision < state.sessionRevision) return false;
   if (!accountView.accept(s)) return false;
+  if (modalKind === 'report' && (!s.loggedIn || s.sessionChecking || s.sessionRevision !== state.sessionRevision)) closeModal();
   const prevLive = new Map(state.channels.map((c) => [c.slug, c.live]));
   celebrate(state, s);
   state = s;
@@ -500,6 +503,7 @@ function closeModal() {
   if (modalKind === 'intro') api.introDone().then(applyState);
   modalKind = null;
   $('#modal').hidden = true;
+  $('#modal-card').replaceChildren();
 }
 $('#modal').onclick = (e) => { if (e.target.id === 'modal') closeModal(); };
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
@@ -512,8 +516,9 @@ function renderSleepList() {
   const [kind, h] = (state.bonusTarget || 'xp:1').split(':');
   const hours = Number(h || 1);
   const name = `${BONUS_NAMES[kind]}${hours > 1 ? ` (${hours} h)` : ''}`;
-  const costOf = (c) => (state.bonusTarget ? c.targetCost : c.costs[kind]);
-  const rich = state.channels.filter((c) => c.hasBonus && (c.points || 0) >= costOf(c)).sort((a, b) => b.points / costOf(b) - a.points / costOf(a));
+  const costOf = c => (c.rewards || []).find(r => r.available && r.kind === kind && r.hours === hours)?.cost;
+  const rich = state.channels.filter(c => state.loggedIn && !state.sessionChecking && costOf(c) > 0
+    && (c.points || 0) >= costOf(c)).sort((a,b) => b.points / costOf(b) - a.points / costOf(a));
   for (const s of [...sleepPicked]) if (!rich.some((c) => c.slug === s)) sleepPicked.delete(s);
   const wrap = el('div', 'sleep');
   wrap.append(el('h3', null, '🌙 Antes de dormir'));
@@ -551,8 +556,11 @@ function renderSleepList() {
 
 // Relatório da semana, com opção de salvar o card como imagem para postar.
 async function showReport() {
+  if (!state.loggedIn || state.sessionChecking) return;
+  const ticket = accountView.current(), revision = state.sessionRevision;
+  const current = () => accountView.isCurrent(ticket) && state.loggedIn && !state.sessionChecking && state.sessionRevision === revision;
   const r = await api.getReport();
-  if (!r) return;
+  if (!r || !current()) return;
   const card = el('div', 'report');
   const head = el('div', 'report-head');
   head.append(el('span', 'brand', 'K'), el('b', null, ' Kickterino · minha semana'), el('span', 'report-date', new Date().toLocaleDateString('pt-BR')));
@@ -585,9 +593,10 @@ async function showReport() {
     el('h4', null, 'Últimas 24 h'), line, bought);
   const actions = el('div', 'modal-actions');
   actions.append(button('💾 Salvar imagem', 'primary', async () => {
+    if (!current()) return;
     const rect = card.getBoundingClientRect();
     const file = await api.saveReport({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
-    if (file) actions.replaceChildren(el('span', 'saved', `Imagem salva em ${file}`), button('Fechar', null, closeModal));
+    if (file && current()) actions.replaceChildren(el('span', 'saved', `Imagem salva em ${file}`), button('Fechar', null, closeModal));
   }), button('Fechar', null, closeModal));
   openModal('report', card, actions);
 }

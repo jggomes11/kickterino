@@ -97,6 +97,7 @@ function setupSession() {
   ses.cookies.on('changed', (_event, cookie) => {
     if (!stopped && !suspended && ['session_token', 'XSRF-TOKEN'].includes(cookie.name)) {
       invalidateSession(true);
+      verificationPending = true;
       later(() => { if (!suspended) poll(); }, 250);
     }
   });
@@ -214,6 +215,7 @@ function invalidateSession(preservePlayers = false) {
   stopLimitTest();
   if (!preservePlayers) for (const slug of [...watchers.keys()]) stopWatcher(slug);
   for (const win of [...storeWindows.values()]) if (!win.isDestroyed()) win.destroy();
+  send('status'); updateTray();
 }
 function resetBalances() { status.clear(); }
 async function readSessionFingerprint() {
@@ -252,10 +254,11 @@ function instrumentWatcher(slug, win) {
   try { dbg.attach('1.3'); } catch { return; }
   const seen = new Set();
   dbg.on('message', async (_e, method, p) => {
-    if (!loggedIn || sessionChecking || stopped || suspended || watchers.get(slug) !== win) return;
     if (method === 'Fetch.requestPaused') {
       const pass = () => dbg.sendCommand('Fetch.continueRequest', { requestId: p.requestId }).catch(() => {});
-      if (!config.lowQuality || win.isDestroyed() || userOpened.has(win)) return pass();
+      // Fetch interception must settle even while private events are suspended.
+      if (!loggedIn || sessionChecking || stopped || suspended || watchers.get(slug) !== win
+        || !config.lowQuality || win.isDestroyed() || userOpened.has(win)) return pass();
       try {
         const { body, base64Encoded } = await dbg.sendCommand('Fetch.getResponseBody', { requestId: p.requestId });
         const text = base64Encoded ? Buffer.from(body, 'base64').toString() : body;
@@ -268,6 +271,7 @@ function instrumentWatcher(slug, win) {
       } catch { pass(); }
       return;
     }
+    if (!loggedIn || sessionChecking || stopped || suspended || watchers.get(slug) !== win) return;
     if (method !== 'Network.webSocketFrameReceived') return;
     for (const line of p.response.payloadData.split('\n')) {
       let frame;
@@ -442,9 +446,11 @@ const targetName = (target) => `${KIND[target.kind].name}${target.hours > 1 ? ` 
 function checkBonus(slug, s) {
   const target = parseTarget();
   if (target) {
-    const cost = targetCost(s, target);
+    const reward = (s.rewards || []).find(r => r.available && r.kind === target.kind && r.hours === target.hours);
+    if (!reward) { s.targetTier = null; s.bonusTier = null; return; }
+    const cost = reward.cost;
     const n = Math.floor((s.points || 0) / cost);
-    if (s.targetTier != null && n > s.targetTier && config.notifyBonus && hasBonus(s)) {
+    if (s.targetTier != null && n > s.targetTier && config.notifyBonus) {
       notify(`${s.displayName || slug}: ${s.points} pontos`, `Já dá para resgatar ${targetName(target)} (${cost} pts). Clique para abrir a loja.`, () => openStore(slug));
     }
     s.targetTier = n;
@@ -452,12 +458,13 @@ function checkBonus(slug, s) {
     return;
   }
   s.targetTier = null;
-  const costs = costsOf(s);
-  const reach = KINDS.filter((k) => s.points >= costs[k.kind]);
+  const choices = KINDS.map(k => (s.rewards || []).filter(r => r.available && r.kind === k.kind)
+    .sort((a,b) => a.cost - b.cost || a.hours - b.hours)[0]).filter(Boolean);
+  const reach = choices.filter(r => s.points >= r.cost);
   const tier = reach.length;
-  if (s.bonusTier != null && tier > s.bonusTier && config.notifyBonus && hasBonus(s)) {
-    const k = reach.sort((a, b) => costs[b.kind] - costs[a.kind])[0];
-    notify(`${s.displayName || slug}: ${s.points} pontos`, `Já dá para resgatar ${k.name} (${costs[k.kind]} pts). Clique para abrir a loja.`, () => openStore(slug));
+  if (s.bonusTier != null && tier > s.bonusTier && config.notifyBonus) {
+    const reward = reach.sort((a,b) => b.cost - a.cost)[0];
+    notify(`${s.displayName || slug}: ${s.points} pontos`, `Já dá para resgatar ${targetName(reward)} (${reward.cost} pts). Clique para abrir a loja.`, () => openStore(slug));
   }
   s.bonusTier = tier;
 }
@@ -939,7 +946,7 @@ function snapshot() {
       };
     }),
     memoryMB: Math.round(app.getAppMetrics().reduce((t, m) => t + m.memory.workingSetSize, 0) / 1024),
-    loggedIn, sessionChecking,
+    loggedIn, sessionChecking, sessionRevision: sessionEpoch,
   };
 }
 
@@ -947,18 +954,25 @@ function snapshot() {
 const POLL_STUCK_MS = 90 * 1000;
 let polling = false;
 let activePoll = null;
+let verificationPending = false;
 let loggedIn = false;
 // Nome da conta logada: o chat destaca quando alguém menciona você.
 let username = null;
 async function poll() {
   if (polling || suspended || stopped) return;
+  verificationPending = false;
   polling = true;
   const cycle={};activePoll=cycle;
+  const channels = [...config.channels];
+  // Two identity calls, four sequential 20s calls per channel in three workers,
+  // then bounded player checks. A valid queue must fit before its watchdog fires.
+  const playerCount = Math.max(watchers.size, Math.min(channels.length, config.maxWatchers));
+  const cycleBudget = Math.max(POLL_STUCK_MS, 40000 + Math.ceil(channels.length / 3) * 80000 + playerCount * PLAYER_CHECK_MS + 5000);
   const deadline=later(()=>{
     if(activePoll!==cycle)return;
     invalidateSession(true);activePoll=null;polling=false;
     void poll();
-  },POLL_STUCK_MS);
+  },cycleBudget);
   let epoch = sessionEpoch;
   try {
     const fingerprint = await readSessionFingerprint();
@@ -979,7 +993,7 @@ async function poll() {
     }
     loggedIn = true; sessionChecking = false; username = verified.username;
     if(apiWin && loginStartedForAccount!==verified.id)releaseLoginWindow();
-    const queue=[...config.channels];
+    const queue=channels;
     const worker=async()=>{
       while(queue.length && sessionCurrent(epoch) && activePoll===cycle){
         await refreshChannel(queue.shift());
@@ -996,7 +1010,10 @@ async function poll() {
     if (sessionCurrent(epoch)) { invalidateSession(true); username = null; }
   } finally {
     timers.cancel(deadline);
-    if(activePoll===cycle){activePoll=null;polling=false;syncKeepAwake();send('status');updateTray();}
+    if(activePoll===cycle){
+      activePoll=null;polling=false;syncKeepAwake();send('status');updateTray();
+      if(verificationPending && !stopped && !suspended)later(poll,0);
+    }
   }
 }
 
@@ -1066,16 +1083,17 @@ handleIpc('stores:cancel', () => { if (storeSequence) storeSequence.queue = []; 
 handleIpc('report:get', () => loggedIn && !sessionChecking ? weeklyReport() : null);
 // Salva o card do relatório como imagem (o recorte é a área do card na janela).
 handleIpc('report:save', async (_e, rect) => {
+  if (!loggedIn || sessionChecking || !isSelected(id)) return null;
   const r = { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) };
   const epoch = sessionEpoch;
   const image = await mainWin.webContents.capturePage(r);
-  if (!sessionCurrent(epoch) || !isSelected(id)) return null;
+  if (!sessionCurrent(epoch) || !loggedIn || sessionChecking || !isSelected(id)) return null;
   const { canceled, filePath } = await dialog.showSaveDialog(mainWin, {
     title: 'Salvar resumo da semana',
     defaultPath: path.join(app.getPath('pictures'), `kickterino-semana-${dayKey(Date.now())}.png`),
     filters: [{ name: 'Imagem PNG', extensions: ['png'] }],
   });
-  if (canceled || !filePath || !sessionCurrent(epoch) || !isSelected(id)) return null;
+  if (canceled || !filePath || !sessionCurrent(epoch) || !loggedIn || sessionChecking || !isSelected(id)) return null;
   fs.writeFileSync(filePath, image.toPNG());
   return filePath;
 });

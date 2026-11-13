@@ -6,10 +6,10 @@ const { EventEmitter } = require('node:events');
 const { pathToFileURL } = require('node:url');
 const { createRequire } = require('node:module');
 
-function loadApp({ packaged = false, platform = 'win32', configSeed = null, singleInstance = true, env = {}, argv = [], loginRegistry = new Map() } = {}) {
+function loadApp({ packaged = false, platform = 'win32', configSeed = null, singleInstance = true, env = {}, argv = [], loginRegistry = new Map(), notifications = false } = {}) {
   const root = path.resolve(__dirname, '../..');
   const state = { scripts: [], requests: [], writes: [], quit: 0, updates: 0, windows: [], ready: [], dialogResponse: 0, sockets: [], timers: [], reloads: [] };
-  state.metricsReads=0;state.intervals=[];state.trayMenus=[];state.trayTips=[];state.partnerRequests=[];state.partnerChannels=[];
+  state.metricsReads=0;state.intervals=[];state.trayMenus=[];state.trayTips=[];state.partnerRequests=[];state.partnerChannels=[];state.sent=[];state.notifications=[];
   state.blockers = new Set(); let blockerId = 0;
   state.paths = {}; state.loginItems = []; state.loginQueries = [];
   const cookies = new EventEmitter();
@@ -40,10 +40,10 @@ function loadApp({ packaged = false, platform = 'win32', configSeed = null, sing
       wc.setWindowOpenHandler = handler => { wc.openHandler = handler; };
       wc.setAudioMuted = () => {};
       wc.getURL = () => wc.mainFrame.url;
-      wc.send = () => {};
+      wc.send = (channel,payload) => state.sent.push({channel,payload});
       wc.stop = () => {};
       wc.reload = () => { state.reloads.push(wc.id); };
-      wc.debugger = { isAttached: () => false, attach() {}, on() {}, sendCommand: async () => ({}) };
+      wc.debugger = Object.assign(new EventEmitter(), { isAttached: () => false, attach() {}, sendCommand: async () => ({}) });
       wc.executeJavaScript = async code => { state.scripts.push(code); return { status: 200, text: '{"data":{"currentUser":{"login":"page"}}}' }; };
       wc.capturePage = async () => ({ toPNG: () => Buffer.from('png') });
       state.windows.push(this);
@@ -79,7 +79,7 @@ function loadApp({ packaged = false, platform = 'win32', configSeed = null, sing
   const handlers = new Map();
   const image = { resize() { return this; }, getSize: () => ({ width: 16, height: 16 }) };
   class Tray extends EventEmitter { setToolTip(t){state.trayTips.push(t);} setContextMenu(m){state.trayMenus.push(m);} }
-  class Notification extends EventEmitter { static isSupported() { return false; } show() {} }
+  class Notification extends EventEmitter { constructor(options){super();this.options=options;} static isSupported() { return notifications; } show() {state.notifications.push(this.options);} close(){this.emit('close');} }
   const electron = {
     app, BrowserWindow: Window, ipcMain: { handle: (channel, fn) => { handlers.set(channel, fn); } },
     session: { fromPartition: partition => { if (!/^persist:(twitch|kick|kick-account-[2-4])$/.test(partition)) throw new Error('Wrong partition'); return getSession(partition); } },
