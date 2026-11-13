@@ -944,15 +944,21 @@ function snapshot() {
 }
 
 // Uma rodada presa não pode parar o app: passado esse tempo, a seguinte começa mesmo assim.
-const POLL_STUCK_MS = 5 * 60 * 1000;
+const POLL_STUCK_MS = 90 * 1000;
 let polling = false;
-let pollStartedAt = 0;
+let activePoll = null;
 let loggedIn = false;
 // Nome da conta logada: o chat destaca quando alguém menciona você.
 let username = null;
 async function poll() {
   if (polling || suspended || stopped) return;
   polling = true;
+  const cycle={};activePoll=cycle;
+  const deadline=later(()=>{
+    if(activePoll!==cycle)return;
+    invalidateSession(true);activePoll=null;polling=false;
+    void poll();
+  },POLL_STUCK_MS);
   let epoch = sessionEpoch;
   try {
     const fingerprint = await readSessionFingerprint();
@@ -973,10 +979,14 @@ async function poll() {
     }
     loggedIn = true; sessionChecking = false; username = verified.username;
     if(apiWin && loginStartedForAccount!==verified.id)releaseLoginWindow();
-    for (const slug of [...config.channels]) {
-      await refreshChannel(slug);
-      if (!sessionCurrent(epoch)) return;
-    }
+    const queue=[...config.channels];
+    const worker=async()=>{
+      while(queue.length && sessionCurrent(epoch) && activePoll===cycle){
+        await refreshChannel(queue.shift());
+      }
+    };
+    await Promise.all(Array.from({length:Math.min(3,queue.length)},worker));
+    if(!sessionCurrent(epoch) || activePoll!==cycle)return;
     if (configDirty) { configDirty = false; saveConfig(); }
     advanceLimitTest(); reconcileWatchers();
     await checkPlayers();
@@ -985,8 +995,8 @@ async function poll() {
   } catch {
     if (sessionCurrent(epoch)) { invalidateSession(true); username = null; }
   } finally {
-    polling = false; syncKeepAwake();
-    send('status'); updateTray();
+    timers.cancel(deadline);
+    if(activePoll===cycle){activePoll=null;polling=false;syncKeepAwake();send('status');updateTray();}
   }
 }
 
