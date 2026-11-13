@@ -1048,7 +1048,7 @@ handleIpc('favorite:toggle', (_e, slug) => {
 });
 handleIpc('purchase:add', (_e, cost) => {
   const target = parseTarget(cost);
-  if (target && HOURS.includes(target.hours)) { config.purchases.push({t:Date.now(),kind:target.kind,hours:target.hours,cost:KIND[target.kind].def*target.hours,slug:null,source:'manual'});saveConfig(); }
+  if (loggedIn && !sessionChecking && target && HOURS.includes(target.hours)) { config.purchases.push({t:Date.now(),kind:target.kind,hours:target.hours,cost:KIND[target.kind].def*target.hours,slug:null,source:'manual'});saveConfig(); }
   updateTray();
   return snapshot();
 });
@@ -1061,7 +1061,7 @@ handleIpc('stores:sequence', (_e, slugs) => {
   return snapshot();
 });
 handleIpc('stores:cancel', () => { if (storeSequence) storeSequence.queue = []; return snapshot(); });
-handleIpc('report:get', () => weeklyReport());
+handleIpc('report:get', () => loggedIn && !sessionChecking ? weeklyReport() : null);
 // Salva o card do relatório como imagem (o recorte é a área do card na janela).
 handleIpc('report:save', async (_e, rect) => {
   const r = { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) };
@@ -1148,6 +1148,7 @@ handleIpc('channel:show', (_e, slug) => {
   send('status');
 });
 handleIpc('chat:send', async (_e, { chatroomId, content }) => {
+  if(!loggedIn || sessionChecking)throw new Error('Session unavailable');
   const { status: code, json } = await kickFetch(`/api/v2/messages/send/${chatroomId}`, {
     method: 'POST', body: { content, type: 'message' },
   });
