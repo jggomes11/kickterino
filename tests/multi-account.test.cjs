@@ -103,6 +103,7 @@ test('regional Google login windows retain their source session', async()=>{
 });
 test('selector today total comes from the selected account daily report',async()=>{
  const a=loadApp(),d=new Date();
+ for(let i=0;i<2;i++){const r=a.runtimes[i];setAccount(r,a.sessions.get(r.partition),i+1,100);await r.poll();}
  const day=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
  a.runtimes[0].__test.config.daily[day]=10;a.runtimes[1].__test.config.daily[day]=25;
  assert.equal(a.manager.snapshot().accounts[0].today,10);

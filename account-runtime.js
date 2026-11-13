@@ -95,7 +95,7 @@ function setupSession() {
   ses.setSpellCheckerEnabled(false);
   ses.cookies.on('changed', (_event, cookie) => {
     if (['session_token', 'XSRF-TOKEN'].includes(cookie.name)) {
-      invalidateSession();
+      invalidateSession(true);
       later(() => { if (!suspended) poll(); }, 250);
     }
   });
@@ -205,12 +205,12 @@ const apiClient = createPlatformClient('kick', () => session.fromPartition(PARTI
 let sessionEpoch = 0, suspended = false, identity = null, cookieFingerprint = null;
 let sessionChecking = true;
 function sessionCurrent(epoch) { return !stopped && !suspended && epoch === sessionEpoch; }
-function invalidateSession() {
+function invalidateSession(preservePlayers = false) {
   sessionEpoch++; apiClient.invalidate(); loggedIn = false; sessionChecking = true;
   storeSequence = null;
   syncKeepAwake();
   stopLimitTest();
-  for (const slug of [...watchers.keys()]) stopWatcher(slug);
+  if (!preservePlayers) for (const slug of [...watchers.keys()]) stopWatcher(slug);
   for (const win of [...storeWindows.values()]) if (!win.isDestroyed()) win.destroy();
 }
 function resetBalances() { status.clear(); }
@@ -248,7 +248,7 @@ function instrumentWatcher(slug, win) {
   try { dbg.attach('1.3'); } catch { return; }
   const seen = new Set();
   dbg.on('message', async (_e, method, p) => {
-    if (!sessionCurrent(epoch) || watchers.get(slug) !== win) return;
+    if (!loggedIn || sessionChecking || stopped || suspended || watchers.get(slug) !== win) return;
     if (method === 'Fetch.requestPaused') {
       const pass = () => dbg.sendCommand('Fetch.continueRequest', { requestId: p.requestId }).catch(() => {});
       if (!config.lowQuality || win.isDestroyed() || userOpened.has(win)) return pass();
@@ -664,7 +664,7 @@ async function checkPlayers() {
       };
     })()`), PLAYER_CHECK_MS).catch((err) => {
       // Página congelada não responde nunca: fecha, e a próxima rodada abre de novo (ou põe outra live).
-      if (err.message === 'timeout' && watchers.get(slug) === win) stopWatcher(slug);
+      if (sessionCurrent(epoch) && loggedIn && err.message === 'timeout' && watchers.get(slug) === win) stopWatcher(slug);
       return null;
     });
     if (!sessionCurrent(epoch) || watchers.get(slug) !== win) return;
@@ -764,6 +764,7 @@ const isShown = (slug) => { const w = watchers.get(slug); return !!w && !w.isDes
 const RECYCLE_MS = 6 * 60 * 60 * 1000;
 
 function reconcileWatchers() {
+  if (config.farming && sessionChecking) return;
   const now = Date.now();
   // Sem login a Kick não dá pontos: abrir live só gastaria memória.
   const canFarm = config.farming && loggedIn && !suspended;
@@ -895,7 +896,7 @@ function snapshot() {
   const now = Date.now();
   return {
     farming: config.farming,
-    today: config.daily[dayKey(now)] || 0,
+    today: loggedIn ? config.daily[dayKey(now)] || 0 : 0,
     maxWatchers: config.maxWatchers,
     lowQuality: config.lowQuality,
     rotation: config.rotation,
@@ -909,26 +910,26 @@ function snapshot() {
     notifyChat: config.notifyChat,
     sleepMode: config.sleepMode,
     favorites: config.favorites,
-    username,
+    username: loggedIn ? username : null,
     version: app.getVersion(),
     intro: config.lastSeenVersion === app.getVersion() ? null : (firstRun ? 'welcome' : 'news'),
-    bonuses: activeBonuses(now),
-    purchases: [...config.purchases].sort((a, b) => b.t - a.t).slice(0, 6),
+    bonuses: loggedIn ? activeBonuses(now) : KINDS.map(k=>({kind:k.kind,name:k.name,endsAt:null})),
+    purchases: !loggedIn ? [] : [...config.purchases].sort((a, b) => b.t - a.t).slice(0, 6),
     storeSequence: storeSequence ? { done: storeSequence.done, total: storeSequence.total } : null,
     channels: config.channels.map((slug) => {
       const s = status.get(slug) || {};
       const watchedMs = (s.watchedMs || 0) + (s.watchingSince ? now - s.watchingSince : 0);
       return {
         slug, displayName: s.displayName || slug, live: !!s.live, viewers: s.viewers || 0,
-        title: s.title || '', chatroomId: s.chatroomId || null, points: s.points ?? null,
+        title: s.title || '', chatroomId: loggedIn ? s.chatroomId || null : null, points: loggedIn ? s.points ?? null : null,
         watching: watchers.has(slug), ageGate: !!s.ageGate, earning: earningState(slug, now),
-        following: s.following ?? null, subscribed: !!s.subscribed,
-        gained: s.gainedTotal || 0,
+        following: loggedIn ? s.following ?? null : null, subscribed: loggedIn && !!s.subscribed,
+        gained: loggedIn ? s.gainedTotal || 0 : 0,
         rewards: s.rewards || [], catalog: s.catalog || {state:'unknown',observedAt:null},
         rewardsLoaded: s.catalog?.state === 'known', hasBonus: hasBonus(s),
         costs: costsOf(s), targetCost: targetCost(s), targetEstimated: !((s.rewards||[]).some(r=>r.available && r.kind===parseTarget()?.kind && r.hours===parseTarget()?.hours)),
-        goal: s.points != null ? goalRank(s).goal : null,
-        goalLeft: s.points != null ? goalRank(s).left : null,
+        goal: loggedIn && s.points != null ? goalRank(s).goal : null,
+        goalLeft: loggedIn && s.points != null ? goalRank(s).left : null,
         watchedMin: Math.floor(watchedMs / 60000), error: s.error || null,
       };
     }),
@@ -952,13 +953,13 @@ async function poll() {
     const fingerprint = await readSessionFingerprint();
     if (!sessionCurrent(epoch)) return;
     if (cookieFingerprint !== fingerprint) {
-      invalidateSession(); cookieFingerprint = fingerprint; epoch = sessionEpoch;
+      invalidateSession(true); cookieFingerprint = fingerprint; epoch = sessionEpoch;
     }
     const verified = await verifyIdentity();
     if (!sessionCurrent(epoch)) return;
     sessionChecking = false;
     if (!verified) {
-      if (loggedIn) invalidateSession();
+      invalidateSession(); resetBalances(); identity=null;
       sessionChecking = false; username = null; return;
     }
     if (identity !== verified.id) {
@@ -976,7 +977,7 @@ async function poll() {
     if (!sessionCurrent(epoch)) return;
     logHistory();
   } catch {
-    if (sessionCurrent(epoch)) { invalidateSession(); username = null; }
+    if (sessionCurrent(epoch)) { invalidateSession(true); username = null; }
   } finally {
     polling = false; syncKeepAwake();
     send('status', snapshot()); updateTray();
