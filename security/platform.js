@@ -13,6 +13,7 @@ function resolveKickUrl(input) {
   if (typeof input !== 'string' || !(
     /^\/api\/v[12]\/user$/.test(input)
     || /^\/api\/v2\/channels\/[a-z0-9_-]{2,30}(?:\/(?:me|points))?$/.test(input)
+    || /^\/api\/v2\/channels\/[a-z0-9_-]{2,30}\/rewards\?is_enabled=true$/.test(input)
     || /^\/api\/v2\/messages\/send\/[1-9][0-9]{0,19}$/.test(input)
   )) throw new Error('Invalid request');
   return KICK + input;

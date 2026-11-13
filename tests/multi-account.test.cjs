@@ -54,7 +54,7 @@ test('cookie invalidation and report updates stay in the originating slot', asyn
   const a=app.runtimes[0], b=app.runtimes[1]; const before=b.__test.client.generation;
   app.sessions.get(a.partition).cookies.emit('changed',{}, {name:'session_token',domain:'.kick.com'});
   assert.equal(b.__test.client.generation,before); assert.equal(b.snapshot().loggedIn,true);
-  await app.handlers.get('account:command')(app.event(),{accountId:ids[0],command:'purchase:add',args:[300]});
+  await app.handlers.get('account:command')(app.event(),{accountId:ids[0],command:'purchase:add',args:['xp:1']});
   assert.equal(b.snapshot().purchases.length,0);
 });
 

@@ -57,23 +57,9 @@ function validateIpcArgs(channel, args, context) {
     if (number < 1 || number > (platform === 'twitch' ? 10 : 30)) invalid();
     return [number];
   }
-  if (channel === 'bonusTarget:set') {
-    if (platform === 'twitch') {
-      if (typeof value !== 'string' || (value !== '' && !/^(xp|capture|lure)(?::(1|3|5|10))?$/.test(value))) invalid();
-      return [value];
-    }
-    const cost = numeric(value);
-    if (![0, 300, 500, 1000].includes(cost)) invalid();
-    return [cost];
-  }
-  if (channel === 'purchase:add') {
-    if (platform === 'twitch') {
-      if (!['xp', 'capture', 'lure'].includes(value)) invalid();
-      return [value];
-    }
-    const cost = numeric(value);
-    if (![300, 500, 1000].includes(cost)) invalid();
-    return [cost];
+  if (channel === 'bonusTarget:set' || channel === 'purchase:add') {
+    if (typeof value !== 'string' || !(channel === 'bonusTarget:set' && value === '') && !/^(xp|capture|lure):(1|3|5|10)$/.test(value)) invalid();
+    return [value];
   }
   if (channel === 'purchase:remove') {
     const timestamp = numeric(value);

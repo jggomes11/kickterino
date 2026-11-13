@@ -199,8 +199,17 @@ function select(slug) {
   $('#input').focus();
 }
 
+function renderPriceBar(ch) {
+  const bar=$('#price-bar');bar.replaceChildren();if(!ch)return;
+  if(ch.catalog?.state!=='known'){bar.append(el('span',null,'Preços estimados · catálogo indisponível'));return;}
+  if(!ch.hasBonus){bar.append(el('span',null,'Bônus indisponíveis neste canal'));return;}
+  for(const kind of KINDS){const list=(ch.rewards||[]).filter(r=>r.kind===kind);if(!list.length)continue;
+    const chip=el('span','price-chip',`${shortName(BONUS_NAMES[kind])}: ${list.map(r=>`${r.hours}h ${fmt(r.cost)}${r.available?'':' (pausado)'}`).join(' · ')}`);bar.append(chip);}
+  if(state.bonusTarget)bar.append(el('span','price-chip',`Meta: ${fmt(ch.targetCost)} pts${ch.targetEstimated?' (estimativa)':''}`));
+}
 function renderHeader() {
   const ch = state.channels.find((c) => c.slug === active);
+  renderPriceBar(ch);
   const title = $('#chat-title');
   title.replaceChildren();
   const fav = !!ch && (state.favorites || []).includes(ch.slug);
@@ -379,8 +388,7 @@ function applyState(s) {
   $('#farming').checked = state.farming;
   $('#low-quality').checked = state.lowQuality;
   $('#rotation').checked = state.rotation;
-  $('#bonus-target').value = String(state.bonusTarget || 0);
-  $('#bonus-target').disabled = !state.rotation;
+  renderTargetSelect();
   $('#autostart').checked = !!state.openAtLogin;
   // No Linux a bandeja pode não aparecer (GNOME sem extensão), então o Sair fica também na janela.
   if (state.platform === 'linux') {
@@ -415,6 +423,37 @@ function etaText(ch) {
   return `⏱ ${clock(min * 60000)} → ${ch.goal.toLocaleString('pt-BR')}`;
 }
 
+let targetKey = '';
+function renderTargetSelect() {
+  const sel = $('#bonus-target');
+  const opts = state.bonusOptions || [];
+  const key = JSON.stringify(opts.map((o) => [o.value, o.cost, o.channels]));
+  if (key !== targetKey && opts.length) {
+    targetKey = key;
+    const icons = { xp: '⚡', capture: '🎯', lure: '✨' };
+    sel.replaceChildren(el('option', null, 'Bônus automático'));
+    sel.firstChild.value = '';
+    for (const k of KINDS) {
+      const group = document.createElement('optgroup');
+      group.label = `${icons[k]} ${BONUS_NAMES[k]}`;
+      for (const o of opts.filter((x) => x.kind === k)) {
+        const opt = el('option', null, `${shortName(BONUS_NAMES[k])} · ${o.hours} h — ${o.varies ? '~' : ''}${fmt(o.cost)} pts`);
+        opt.value = o.value;
+        if (o.estimated) opt.textContent += ' (estimativa)';
+        group.append(opt);
+      }
+      sel.append(group);
+    }
+  }
+  const value = state.bonusTarget && !state.bonusTarget.includes(':') ? `${state.bonusTarget}:1` : (state.bonusTarget || '');
+  sel.value = value;
+  sel.disabled = !state.rotation;
+  const t = opts.find((o) => o.value === value);
+  sel.title = t ? `Juntando pontos em cada canal até ${fmt(t.cost)} para comprar ${BONUS_NAMES[t.kind]} de ${t.hours} h de uma vez.`
+    : 'Automático: todos os canais chegam ao XP, depois Capture Boost e Secret Lure. Ou escolha um pacote (tipo + horas) para juntar até o preço dele.';
+}
+
+
 function renderBonusBox() {
   const box = $('#bonus-box');
   box.replaceChildren();
@@ -425,7 +464,7 @@ function renderBonusBox() {
     chip.append(el('span', 'bonus-name', shortName(b.name)), el('span', 'bonus-left', on ? clock(b.endsAt - now) : 'inativo'));
     const add = el('button', 'bonus-add', '+1h');
     add.title = `Registrar uma compra de ${b.name} feita fora do app (o app percebe sozinho as compras pelo saldo)`;
-    add.onclick = async () => applyState(await api.addPurchase(b.cost));
+    add.onclick = async () => applyState(await api.addPurchase(`${b.kind}:1`));
     chip.append(add);
     box.append(chip);
   }
@@ -433,9 +472,9 @@ function renderBonusBox() {
   if (recent.length) {
     const list = el('div', 'purchases');
     for (const p of recent) {
-      const name = (BONUS_NAMES[p.cost] || `${p.cost} pts`);
+      const name = (BONUS_NAMES[p.kind] || `${p.cost} pts`);
       const ch = state.channels.find((c) => c.slug === p.slug);
-      const row = el('div', 'purchase', `${shortName(name)} · ${ch ? ch.displayName : 'registrado à mão'} · ${timeStr(new Date(p.t))}`);
+      const row = el('div', 'purchase', `${shortName(name)} ${p.hours || 1}h (${p.source || "inferred"}) · ${ch ? ch.displayName : 'registrado à mão'} · ${timeStr(new Date(p.t))}`);
       const x = el('button', 'purchase-x', '✕');
       x.title = 'Não foi uma compra de bônus? Remove do cronômetro e do relatório';
       x.onclick = async () => applyState(await api.removePurchase(p.t));
@@ -445,7 +484,8 @@ function renderBonusBox() {
     box.append(list);
   }
 }
-const BONUS_NAMES = { 300: '+15% XP', 500: '+15% Capture Boost', 1000: '+15% Secret Lure' };
+const KINDS=['xp','capture','lure'];
+const BONUS_NAMES = { xp: '+15% XP', capture: '+15% Capture Boost', lure: '+15% Secret Lure' };
 setInterval(() => { if (!$('#panel').hidden) renderBonusBox(); }, 20 * 1000);
 
 // ---------- Janela flutuante (relatório, antes de dormir, boas-vindas) ----------
@@ -468,9 +508,12 @@ const button = (text, cls, onclick) => { const b = el('button', cls, text); b.on
 // Antes de dormir: canais com pontos para o bônus escolhido; as lojas abrem uma de cada vez.
 const sleepPicked = new Set();
 function renderSleepList() {
-  const cost = state.bonusTarget || 300;
-  const name = BONUS_NAMES[cost];
-  const rich = state.channels.filter((c) => (c.points || 0) >= cost).sort((a, b) => b.points - a.points);
+  // Com um pacote escolhido, conta pacotes (ex.: 2× XP 3 h); no automático, XP de 1 h.
+  const [kind, h] = (state.bonusTarget || 'xp:1').split(':');
+  const hours = Number(h || 1);
+  const name = `${BONUS_NAMES[kind]}${hours > 1 ? ` (${hours} h)` : ''}`;
+  const costOf = (c) => (state.bonusTarget ? c.targetCost : c.costs[kind]);
+  const rich = state.channels.filter((c) => c.hasBonus && (c.points || 0) >= costOf(c)).sort((a, b) => b.points / costOf(b) - a.points / costOf(a));
   for (const s of [...sleepPicked]) if (!rich.some((c) => c.slug === s)) sleepPicked.delete(s);
   const wrap = el('div', 'sleep');
   wrap.append(el('h3', null, '🌙 Antes de dormir'));
@@ -481,17 +524,17 @@ function renderSleepList() {
     return $('#modal-card').replaceChildren(wrap);
   }
   if (!rich.length) {
-    wrap.append(el('p', null, `Nenhum canal tem ${cost} pts para ${name} agora.`), button('Fechar', null, closeModal));
+    wrap.append(el('p', null, `Nenhum canal tem pontos para ${name} agora.`), button('Fechar', null, closeModal));
     return $('#modal-card').replaceChildren(wrap);
   }
-  const total = rich.reduce((t, c) => t + Math.floor(c.points / cost), 0);
-  wrap.append(el('p', null, `Dá para comprar ${total} × ${name} (${total} h de bônus). Escolha os canais e as lojas abrem uma de cada vez: você compra e fecha a janela, e a próxima aparece.`));
+  const total = rich.reduce((t, c) => t + Math.floor(c.points / costOf(c)), 0);
+  wrap.append(el('p', null, `Dá para comprar ${total}× ${name} (${total * hours} h de bônus), somando os canais. Escolha os canais e as lojas abrem uma de cada vez: você compra e fecha a janela, e a próxima aparece.`));
   const list = el('div', 'sleep-list');
   for (const c of rich) {
     const row = el('label', 'sleep-row');
     const cb = el('input'); cb.type = 'checkbox'; cb.checked = sleepPicked.has(c.slug);
     cb.onchange = () => { if (cb.checked) sleepPicked.add(c.slug); else sleepPicked.delete(c.slug); renderSleepList(); };
-    row.append(cb, el('span', null, c.displayName), el('span', 'sleep-pts', `${c.points.toLocaleString('pt-BR')} pts · ${Math.floor(c.points / cost)}×`));
+    row.append(cb, el('span', null, c.displayName), el('span', 'sleep-pts', `${fmt(c.points)} pts · ${fmt(costOf(c))} cada · ${Math.floor(c.points / costOf(c))}×`));
     list.append(row);
   }
   wrap.append(list);
@@ -515,13 +558,13 @@ async function showReport() {
   head.append(el('span', 'brand', 'K'), el('b', null, ' Kickterino · minha semana'), el('span', 'report-date', new Date().toLocaleDateString('pt-BR')));
   const big = el('div', 'report-big');
   const stat = (value, label) => { const d = el('div', 'report-stat'); d.append(el('b', null, value), el('span', null, label)); return d; };
-  big.append(stat(r.gained.toLocaleString('pt-BR'), 'pontos ganhos'), stat(String(r.bought.reduce((t, b) => t + b.count, 0)), 'bônus comprados'),
+  big.append(stat(r.gained.toLocaleString('pt-BR'), 'pontos ganhos'), stat(String(r.bought.reduce((t, b) => t + b.count, 0)), 'horas compradas'),
     stat(`${r.bonusHours} h`, 'com bônus ativo'), stat(`${r.coverage}%`, 'do tempo com bônus'));
   const days = el('div', 'report-days');
   const max = Math.max(1, ...r.days.map((d) => d.gained));
   for (const d of r.days) {
     const col = el('div', 'report-day');
-    col.title = `${d.day}: ${d.gained} pts · ${d.bought.map((n, i) => `${n}× ${shortName(Object.values(BONUS_NAMES)[i])}`).join(', ')}`;
+    col.title = `${d.day}: ${d.gained} pts · ${d.bought.map((n, i) => `${n} h ${shortName(Object.values(BONUS_NAMES)[i])}`).join(', ')}`;
     const bar = el('i'); bar.style.height = `${Math.round((d.gained / max) * 100)}%`;
     const slot = el('div', 'report-bar'); slot.append(bar);
     col.append(el('small', null, d.gained ? d.gained.toLocaleString('pt-BR') : ''), slot, el('span', null, d.weekday.replace('.', '')));
@@ -650,7 +693,7 @@ function celebrate(prev, next) {
     if (lastBefore && p.t <= lastBefore.t) break;
     if (!prev.purchases) break;
     const ch = next.channels.find((c) => c.slug === p.slug);
-    toast(`⏱ +1h de ${BONUS_NAMES[p.cost] || 'bônus'}${ch ? ` (${ch.displayName})` : ''} no cronômetro`);
+    toast(`⏱ +${p.hours || 1}h de ${BONUS_NAMES[p.kind] || 'bônus'}${ch ? ` (${ch.displayName})` : ''} no cronômetro`);
   }
 }
 
@@ -669,7 +712,7 @@ $('#btn-report').onclick = showReport;
 $('#btn-fav').onclick = async () => active && applyState(await api.toggleFavorite(active));
 $('#notify-bonus').onchange = async (e) => applyState(await api.setNotifyBonus(e.target.checked));
 $('#rotation').onchange = async (e) => applyState(await api.setRotation(e.target.checked));
-$('#bonus-target').onchange = async (e) => applyState(await api.setBonusTarget(Number(e.target.value)));
+$('#bonus-target').onchange = async (e) => applyState(await api.setBonusTarget(e.target.value));
 $('#low-quality').onchange = async (e) => applyState(await api.setLowQuality(e.target.checked));
 $('#max-watchers').onchange = async (e) => applyState(await api.setMaxWatchers(e.target.value));
 const setPanel = (open) => {

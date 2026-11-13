@@ -4,6 +4,7 @@ const { app, BrowserWindow, dialog, session, Notification, powerSaveBlocker, net
 const path = require('node:path');
 const fs = require('node:fs');
 const { selectReportAccount } = require('./security/accounts');
+const { migrateBonuses } = require('./security/bonuses');
 function createAccountRuntime({ id, partition, dataDirectory, emit, onChanged, showMain, isSelected = () => true, isOpenAtLogin }) {
 const PARTITION = partition;
 const KICK = 'https://kick.com';
@@ -22,7 +23,7 @@ const DEFAULT_CONFIG = {
   maxWatchers: 2,
   lowQuality: true,
   rotation: true,
-  bonusTarget: 0, // 0 = automático (300, 500, 1.000); ou o custo do único bônus que a pessoa quer
+  bonusTarget: '', // 0 = automático (300, 500, 1.000); ou o custo do único bônus que a pessoa quer
   notifyBonus: true,
   notifyChat: true,  // menções ao seu nome e sorteios no chat
   sleepMode: false,  // "antes de dormir": só aparece para quem ligar
@@ -48,6 +49,7 @@ function loadConfig() {
     config.rotation = true;
     config.configVersion = 2;
   }
+  migrateBonuses(config);
   saveConfig();
 }
 function saveConfig() {
@@ -351,9 +353,45 @@ function stopWatcher(slug) {
 
 // Avisa quando o saldo do canal alcança um bônus do PokeIdle. O saldo ao abrir o app é a
 // referência: só o que for alcançado depois gera aviso.
-const BONUSES = [
-  { cost: 300, name: '+15% XP' }, { cost: 500, name: '+15% Capture Boost' }, { cost: 1000, name: '+15% Secret Lure' },
+const KINDS = [
+  { kind: 'xp', name: '+15% XP', re: /\bXP\b/i, def: 300 },
+  { kind: 'capture', name: '+15% Capture Boost', re: /capture/i, def: 500 },
+  { kind: 'lure', name: '+15% Secret Lure', re: /secret\s*lure|\blure\b/i, def: 1000 },
 ];
+const KIND = Object.fromEntries(KINDS.map((k) => [k.kind, k]));
+// Specific boosts must win over the generic XP word in "Capture XP Boost".
+const REWARD_KINDS = [KIND.capture, KIND.lure, KIND.xp];
+
+function parseRewards(list) {
+  const out = [];
+  for (const r of list || []) {
+    const title = String(r.title || '');
+    if (!/15\s*%|pokeidle|b[oô]nus|\b(?:capture\s+(?:xp\s+)?|xp\s+)boost\b/i.test(title)) continue;
+    const k = REWARD_KINDS.find((x) => x.re.test(title));
+    if (!k) continue;
+    const hours = Number((title.match(/\((\d+)\s*h\)/i) || [0, 1])[1]) || 1;
+    if (!HOURS.includes(hours) || !Number.isSafeInteger(r.cost) || r.cost <= 0 || !['string','number'].includes(typeof r.id)) continue;
+    out.push({ id: r.id, kind: k.kind, hours, cost: r.cost, title, available: r.is_enabled === true && r.is_paused === false });
+  }
+  return out;
+}
+
+// Preço de 1 h de cada bônus no canal (padrão do jogo se o canal não tiver a recompensa).
+function costsOf(s) {
+  const costs = {};
+  for (const k of KINDS) {
+    const r = (s.rewards || []).filter((x) => x.kind === k.kind && x.available).sort((a, b) => a.hours - b.hours)[0];
+    costs[k.kind] = r ? Math.round(r.cost / r.hours) : k.def;
+  }
+  return costs;
+}
+const hasBonus = (s) => (s.rewards || []).some((r) => r.available);
+
+const BONUS_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const KEEP_PURCHASES_MS = 10 * DAY_MS;
+let configDirty = false;
+
 const liveNotifications = new Set(); // sem referência, o Windows perde o clique na notificação
 
 function notify(title, body, onClick) {
@@ -366,23 +404,59 @@ function notify(title, body, onClick) {
   n.show();
 }
 
+const HOURS = [1, 3, 5, 10];
+function parseTarget(t = config.bonusTarget) {
+  const m = /^(xp|capture|lure)(?::(\d+))?$/.exec(String(t || ''));
+  return m ? { kind: m[1], hours: Number(m[2] || 1) } : null;
+}
+// Preço do pacote escolhido neste canal: o da loja dele; se o canal não tiver esse pacote,
+// as horas pelo preço de 1 h (é o que a pessoa pagaria comprando de 1 em 1).
+function targetCost(s, target = parseTarget()) {
+  if (!target) return null;
+  const r = (s.rewards || []).find((x) => x.kind === target.kind && x.hours === target.hours && x.available);
+  return r ? r.cost : costsOf(s)[target.kind] * target.hours;
+}
+// Pacotes que existem nas lojas dos canais da lista, com o preço mais comum de cada um.
+function bonusOptions() {
+  const out = [];
+  for (const k of KINDS) for (const hours of HOURS) {
+    const prices = {};
+    let channels = 0;
+    for (const st of status.values()) {
+      const r = (st.rewards || []).find((x) => x.kind === k.kind && x.hours === hours && x.available);
+      if (r) { channels++; prices[r.cost] = (prices[r.cost] || 0) + 1; }
+    }
+    const common = Object.entries(prices).sort((a, b) => b[1] - a[1])[0];
+    out.push({ value: `${k.kind}:${hours}`, kind: k.kind, hours, cost: common ? Number(common[0]) : k.def * hours, channels, estimated: !common, varies: Object.keys(prices).length > 1 });
+  }
+  return out;
+}
+const targetName = (target) => `${KIND[target.kind].name}${target.hours > 1 ? ` (${target.hours} h)` : ''}`;
+
+// Avisa quando o saldo alcança um bônus do canal (o saldo ao abrir o app é a referência).
+// Com um pacote escolhido, avisa só quando dá para comprar esse pacote.
 function checkBonus(slug, s) {
-  const tier = BONUSES.filter((b) => s.points >= b.cost).length;
-  const wanted = !config.bonusTarget || (tier && BONUSES[tier - 1].cost === config.bonusTarget);
-  if (s.bonusTier != null && tier > s.bonusTier && config.notifyBonus && wanted) {
-    notify(`${s.displayName || slug}: ${s.points} pontos`, `Já dá para resgatar ${BONUSES[tier - 1].name}. Clique para abrir a loja.`, () => openStore(slug));
+  const target = parseTarget();
+  if (target) {
+    const cost = targetCost(s, target);
+    const n = Math.floor((s.points || 0) / cost);
+    if (s.targetTier != null && n > s.targetTier && config.notifyBonus && hasBonus(s)) {
+      notify(`${s.displayName || slug}: ${s.points} pontos`, `Já dá para resgatar ${targetName(target)} (${cost} pts). Clique para abrir a loja.`, () => openStore(slug));
+    }
+    s.targetTier = n;
+    s.bonusTier = null;
+    return;
+  }
+  s.targetTier = null;
+  const costs = costsOf(s);
+  const reach = KINDS.filter((k) => s.points >= costs[k.kind]);
+  const tier = reach.length;
+  if (s.bonusTier != null && tier > s.bonusTier && config.notifyBonus && hasBonus(s)) {
+    const k = reach.sort((a, b) => costs[b.kind] - costs[a.kind])[0];
+    notify(`${s.displayName || slug}: ${s.points} pontos`, `Já dá para resgatar ${k.name} (${costs[k.kind]} pts). Clique para abrir a loja.`, () => openStore(slug));
   }
   s.bonusTier = tier;
 }
-
-// ---------- Bônus ativos, histórico e relatório ----------
-// Cada bônus dura 1 h e as horas compradas se somam. A compra é percebida pela queda do saldo:
-// entre duas leituras o saldo pode ter subido até ~25 pts, então vale a menor combinação de
-// bônus que explica a queda. Compras que a pessoa registra à mão entram igual.
-const BONUS_MS = 60 * 60 * 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
-const KEEP_PURCHASES_MS = 10 * DAY_MS;
-let configDirty = false;
 
 const dayKey = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
@@ -392,61 +466,73 @@ function addDaily(n) {
   configDirty = true;
 }
 
-function matchPurchase(drop) {
+function matchPurchase(drop, rewards) {
+  const list = rewards.filter((r) => r.available).sort((a, b) => a.hours - b.hours);
   let best = null;
-  for (let c = 0; c <= 6; c++) for (let b = 0; b <= 6; b++) for (let a = 0; a <= 6; a++) {
-    const n = a + b + c, sum = 300 * a + 500 * b + 1000 * c;
-    if (!n || sum < drop || sum > drop + 25 || (best && n >= best.length)) continue;
-    best = [...Array(c).fill(1000), ...Array(b).fill(500), ...Array(a).fill(300)];
-  }
-  return best || [];
+  let signature = null;
+  let ambiguous = false;
+  const walk = (start, picked, sum) => {
+    if (sum >= drop && sum <= drop + 25) {
+      const key = picked.map((r) => `${r.kind}:${r.hours}`).sort().join(',');
+      if (!best || picked.length < best.length) {
+        best = picked;
+        signature = key;
+        ambiguous = false;
+      } else if (picked.length === best.length && key !== signature) ambiguous = true;
+      return;
+    }
+    if (picked.length >= 4 || sum > drop + 25) return;
+    for (let i = start; i < list.length; i++) walk(i, [...picked, list[i]], sum + list[i].cost);
+  };
+  walk(0, [], 0);
+  // A balance alone cannot distinguish equally plausible bonus packages.
+  return ambiguous ? [] : best || [];
 }
 
-function registerPurchases(slug, drop) {
+function registerPurchases(slug, s, drop) {
   const now = Date.now();
-  matchPurchase(drop).forEach((cost, i) => config.purchases.push({ t: now + i, cost, slug }));
-  config.purchases = config.purchases.filter((p) => now - p.t < KEEP_PURCHASES_MS);
-  configDirty = true;
+  matchPurchase(drop, s.rewards || []).forEach((r, i) => config.purchases.push({t:now+i,kind:r.kind,hours:r.hours,cost:r.cost,slug,source:'inferred'}));
+  config.purchases=config.purchases.filter(p=>now-p.t<KEEP_PURCHASES_MS);
+  configDirty=true;
 }
 
 // Fim de cada bônus, somando as horas na ordem das compras.
 function bonusIntervals(purchases = config.purchases) {
-  const byCost = {};
+  const byKind = {};
   for (const p of [...purchases].sort((a, b) => a.t - b.t)) {
-    const list = byCost[p.cost] || (byCost[p.cost] = []);
+    const list = byKind[p.kind] || (byKind[p.kind] = []);
     const last = list[list.length - 1];
-    if (last && last.end >= p.t) last.end += BONUS_MS;
-    else list.push({ start: p.t, end: p.t + BONUS_MS });
+    const dur = (p.hours || 1) * BONUS_MS;
+    if (last && last.end >= p.t) last.end += dur;
+    else list.push({ start: p.t, end: p.t + dur });
   }
-  return byCost;
+  return byKind;
 }
 
 function activeBonuses(now = Date.now()) {
-  const byCost = bonusIntervals();
-  return BONUSES.map((b) => {
-    const cur = (byCost[b.cost] || []).find((i) => i.start <= now && i.end > now);
-    return { cost: b.cost, name: b.name, endsAt: cur ? cur.end : null };
+  const byKind = bonusIntervals();
+  return KINDS.map((k) => {
+    const cur = (byKind[k.kind] || []).find((i) => i.start <= now && i.end > now);
+    return { kind: k.kind, name: k.name, endsAt: cur ? cur.end : null };
   });
 }
 
-// Aviso 5 min antes de cada bônus acabar (uma vez por fim de bônus).
 const warnedEnds = new Set();
 function checkBonusEnding() {
   const now = Date.now();
   for (const b of activeBonuses(now)) {
-    if (!b.endsAt || b.endsAt - now > 5 * 60 * 1000 || warnedEnds.has(`${b.cost}:${b.endsAt}`)) continue;
-    warnedEnds.add(`${b.cost}:${b.endsAt}`);
+    if (!b.endsAt || b.endsAt - now > 5 * 60 * 1000 || warnedEnds.has(`${b.kind}:${b.endsAt}`)) continue;
+    warnedEnds.add(`${b.kind}:${b.endsAt}`);
     if (!config.notifyBonus) continue;
-    // Sugere o canal com mais pontos que ainda paga esse bônus.
     const rich = config.channels.map((slug) => [slug, status.get(slug) || {}])
-      .filter(([, s]) => (s.points || 0) >= b.cost).sort((x, y) => y[1].points - x[1].points)[0];
+      .filter(([, s]) => hasBonus(s) && (s.points || 0) >= costsOf(s)[b.kind]).sort((x, y) => y[1].points - x[1].points)[0];
     notify(`Seu ${b.name} acaba em ${Math.max(1, Math.round((b.endsAt - now) / 60000))} min`,
       rich ? `${rich[1].displayName || rich[0]} tem ${rich[1].points} pts. Clique para abrir a loja.` : 'Nenhum canal tem pontos para renovar agora.',
       () => (rich ? openStore(rich[0]) : showMain()));
   }
 }
 
-// Relatório dos últimos 7 dias: pontos por dia, compras e tempo com bônus ativo por período.
+// Relatório dos últimos 7 dias.
 const PERIODS = [['Madrugada', 0, 6], ['Dia', 6, 18], ['Noite', 18, 24]];
 function weeklyReport(now = Date.now()) {
   const from = now - 7 * DAY_MS;
@@ -455,9 +541,8 @@ function weeklyReport(now = Date.now()) {
     const t = now - i * DAY_MS, k = dayKey(t);
     const bought = config.purchases.filter((p) => dayKey(p.t) === k);
     days.push({ day: k, weekday: new Date(t).toLocaleDateString('pt-BR', { weekday: 'short' }), gained: config.daily[k] || 0,
-      bought: BONUSES.map((b) => bought.filter((p) => p.cost === b.cost).length) });
+      bought: KINDS.map((b) => bought.filter((p) => p.kind === b.kind).reduce((h, p) => h + (p.hours || 1), 0)) });
   }
-  // Minuto a minuto: há algum bônus ativo? (qualquer um dos três)
   const all = Object.values(bonusIntervals()).flat();
   const isOn = (t) => all.some((i) => i.start <= t && i.end > t);
   const per = PERIODS.map(([name]) => ({ name, on: 0, total: 0 }));
@@ -469,14 +554,13 @@ function weeklyReport(now = Date.now()) {
     p.total++; total++;
     if (active) { p.on++; on++; }
   }
-  // Últimas 24 h em blocos de 30 min, para a linha do tempo.
   const timeline = [];
   for (let i = 47; i >= 0; i--) timeline.push(isOn(now - i * 30 * 60000 - 15 * 60000));
   const recent = config.purchases.filter((p) => p.t >= from);
   return {
     days, timeline, timelineStart: now - DAY_MS,
     gained: days.reduce((t, d) => t + d.gained, 0),
-    bought: BONUSES.map((b) => ({ name: b.name, cost: b.cost, count: recent.filter((p) => p.cost === b.cost).length })),
+    bought: KINDS.map((b) => ({ name: b.name, kind: b.kind, count: recent.filter((p) => p.kind === b.kind).reduce((h, p) => h + (p.hours || 1), 0) })),
     bonusHours: Math.round(on / 60),
     coverage: total ? Math.round((on / total) * 100) : 0,
     periods: per.map((p) => ({ name: p.name, pct: p.total ? Math.round((p.on / p.total) * 100) : 0 })),
@@ -531,6 +615,16 @@ async function refreshChannel(slug) {
     // Quem é sub ganha o dobro de pontos naquele canal (20 a cada 5 min).
     if (code === 200 && json && 'subscription' in json) s.subscribed = !!json.subscription;
   } catch {}
+  try {
+    const { status: code, json } = await kickFetch(`/api/v2/channels/${slug}/rewards?is_enabled=true`);
+    if (!sessionCurrent(epoch) || !loggedIn || !config.channels.includes(slug)) return;
+    if (code !== 200 || !Array.isArray(json?.data)) throw new Error('Catalog unavailable');
+    s.rewards = parseRewards(json.data);
+    s.catalog = {state:'known', observedAt:Date.now()};
+  } catch {
+    if (!sessionCurrent(epoch)) return;
+    s.rewards=[]; s.catalog={state:'error',observedAt:Date.now()};
+  }
   // Saldo de pontos — endpoint não documentado; se falhar, só mostramos "—".
   try {
     const { status: code, json } = await kickFetch(`/api/v2/channels/${slug}/points`);
@@ -544,7 +638,7 @@ async function refreshChannel(slug) {
           if (watchers.has(slug)) s.lastGainAt = Date.now();
           addDaily(p - s.points);
         }
-        if (s.points != null && p < s.points) registerPurchases(slug, s.points - p);
+        if (s.points != null && p < s.points) registerPurchases(slug, s, s.points - p);
         s.points = p;
         checkBonus(slug, s);
       }
@@ -626,30 +720,36 @@ function logHistory() {
 const SWITCH_MARGIN = 50;
 const IDLE_COOLDOWN_MS = 30 * 60 * 1000;
 
-function goalRank(points) {
-  const p = points || 0;
-  // Bônus escolhido: junta pontos até o custo dele; quem já chegou cede a vaga para o próximo canal.
-  if (config.bonusTarget) {
-    const tier = Math.floor(p / config.bonusTarget);
-    const goal = (tier + 1) * config.bonusTarget;
+function goalRank(s) {
+  const p = s.points || 0;
+  const costs = costsOf(s);
+  if (parseTarget()) {
+    const target = targetCost(s);
+    const tier = Math.floor(p / target);
+    const goal = (tier + 1) * target;
     return { tier, goal, left: goal - p };
   }
-  // Passou de 1.000: cada milhar é uma meta nova, então ninguém dispara na frente dos outros.
-  const thousands = Math.floor(p / 1000);
-  const tier = thousands ? BONUSES.length - 1 + thousands : BONUSES.filter((b) => p >= b.cost).length;
-  const goal = thousands ? (thousands + 1) * 1000 : BONUSES[tier].cost;
-  return { tier, goal, left: goal - p };
+  const list = [...new Set(Object.values(costs))].sort((a, b) => a - b);
+  const top = list[list.length - 1];
+  if (p >= top) {
+    const m = Math.floor(p / top);
+    return { tier: list.length - 1 + m, goal: (m + 1) * top, left: (m + 1) * top - p };
+  }
+  const tier = list.filter((c) => p >= c).length;
+  return { tier, goal: list[tier], left: list[tier] - p };
 }
 
 const compareGoal = (a, b) => {
-  const ra = goalRank(a.points), rb = goalRank(b.points);
-  return !!a.cooling - !!b.cooling || !!b.sub - !!a.sub || ra.tier - rb.tier || ra.left - rb.left;
+  const ra = goalRank(a), rb = goalRank(b);
+  return !!b.sub - !!a.sub || !!a.cooling - !!b.cooling || !a.bonus - !b.bonus || ra.tier - rb.tier || ra.left - rb.left;
 };
 
 function worthSwitching(candidate, current) {
-  if (candidate.cooling || current.sub) return false;
+  if (current.sub) return false;
   if (candidate.sub) return true;
-  const c = goalRank(candidate.points), w = goalRank(current.points);
+  if (candidate.cooling) return false;
+  if (candidate.bonus !== current.bonus) return candidate.bonus;
+  const c = goalRank(candidate), w = goalRank(current);
   return c.tier < w.tier || (c.tier === w.tier && c.left + SWITCH_MARGIN < w.left);
 }
 
@@ -693,7 +793,7 @@ function reconcileWatchers() {
   const focusInfo = (slug) => {
     const s = status.get(slug) || {};
     const cooling = (s.cooldownUntil || 0) > now;
-    return { points: s.points, cooling, sub: !!s.subscribed && !cooling };
+    return { ...s, cooling, bonus: hasBonus(s), sub: !!s.subscribed };
   };
   const byGoal = (a, b) => compareGoal(focusInfo(a), focusInfo(b));
   const waiting = config.channels.filter((slug) => !watchers.has(slug) && (status.get(slug) || {}).live);
@@ -800,6 +900,7 @@ function snapshot() {
     lowQuality: config.lowQuality,
     rotation: config.rotation,
     bonusTarget: config.bonusTarget,
+    bonusOptions: bonusOptions(),
     limitTest: limitTestSnapshot(),
     limitResult: config.limitResult || null,
     openAtLogin: isOpenAtLogin(),
@@ -823,8 +924,11 @@ function snapshot() {
         watching: watchers.has(slug), ageGate: !!s.ageGate, earning: earningState(slug, now),
         following: s.following ?? null, subscribed: !!s.subscribed,
         gained: s.gainedTotal || 0,
-        goal: s.points != null ? goalRank(s.points).goal : null,
-        goalLeft: s.points != null ? goalRank(s.points).left : null,
+        rewards: s.rewards || [], catalog: s.catalog || {state:'unknown',observedAt:null},
+        rewardsLoaded: s.catalog?.state === 'known', hasBonus: hasBonus(s),
+        costs: costsOf(s), targetCost: targetCost(s), targetEstimated: !((s.rewards||[]).some(r=>r.available && r.kind===parseTarget()?.kind && r.hours===parseTarget()?.hours)),
+        goal: s.points != null ? goalRank(s).goal : null,
+        goalLeft: s.points != null ? goalRank(s).left : null,
         watchedMin: Math.floor(watchedMs / 60000), error: s.error || null,
       };
     }),
@@ -929,7 +1033,8 @@ handleIpc('favorite:toggle', (_e, slug) => {
   return snapshot();
 });
 handleIpc('purchase:add', (_e, cost) => {
-  if (BONUSES.some((b) => b.cost === cost)) { config.purchases.push({ t: Date.now(), cost, slug: null }); saveConfig(); }
+  const target = parseTarget(cost);
+  if (target && HOURS.includes(target.hours)) { config.purchases.push({t:Date.now(),kind:target.kind,hours:target.hours,cost:KIND[target.kind].def*target.hours,slug:null,source:'manual'});saveConfig(); }
   updateTray();
   return snapshot();
 });
@@ -965,7 +1070,9 @@ handleIpc('maxWatchers:set', (_e, n) => {
 });
 handleIpc('rotation:set', (_e, on) => { limitTest = null; config.rotation = !!on; saveConfig(); reconcileWatchers(); return snapshot(); });
 handleIpc('bonusTarget:set', (_e, cost) => {
-  config.bonusTarget = BONUSES.some((b) => b.cost === cost) ? cost : 0;
+  const target=parseTarget(cost);
+  config.bonusTarget=target && HOURS.includes(target.hours) ? `${target.kind}:${target.hours}` : '';
+  for(const st of status.values()){st.targetTier=null;st.bonusTier=null;}
   saveConfig();
   reconcileWatchers();
   return snapshot();

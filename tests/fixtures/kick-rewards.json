@@ -1,0 +1,381 @@
+{
+  "provenance": {
+    "observedAtUtc": "2026-11-13T05:35:03.244304+00:00",
+    "method": "GET, no cookies and no Authorization header; route read from official public frontend",
+    "entryPage": "https://kick.com/yetz",
+    "officialSourceChunks": [
+      {
+        "url": "https://assets.kick.com/main/_next/static/chunks/2w1o8dpvw77eb.js?dpl=30670910",
+        "sha256": "8ff6d7bcd1bdb6278f5f5e57e6add076423d9d467c1d2d4919dd651fb0a8c9d3"
+      },
+      {
+        "url": "https://assets.kick.com/main/_next/static/chunks/0g6fonna_ev9i.js?dpl=30670910",
+        "sha256": "818a68b1aa6f2d7a3b113b6ba8f8c10574ed19d040797773d3e5708ee171d229"
+      }
+    ],
+    "viewerCatalogConsumer": "useChatroomContext().channelSlug -> rewards(slug, {is_enabled:true}) -> response.data[]",
+    "redaction": "Only id/title/cost/is_enabled/is_paused/description retained on reward entries; no session/user data collected."
+  },
+  "cases": [
+    {
+      "slug": "yetz",
+      "url": "https://kick.com/api/v2/channels/yetz/rewards?is_enabled=true",
+      "httpStatus": 200,
+      "body": {
+        "data": [
+          {
+            "id": "01M3WTJRD7AC40Y0MDPANVBQG9",
+            "title": "Bônus +15% XP PokeIdle",
+            "cost": 300,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "1 hora de +15% de XP (treinador e pokemon) no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M3WTJRV0QGK66Z788ZM03NJZ",
+            "title": "Bônus de +15% Capture Boost",
+            "cost": 500,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "1 hora de +15% na chance de captura no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRYB20Y72FJ2NCKRE3F3MM",
+            "title": "Bônus +15% XP PokeIdle (3h)",
+            "cost": 900,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "3 horas de +15% de XP (treinador e pokemon) no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M3WTJRZG1N1A2H3M1KBAX5ZJ",
+            "title": "Bônus de +15% Secret Lure",
+            "cost": 1000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "1 hora de +15% na chance de shiny no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRYB9YGG43H1BEG8548V5J",
+            "title": "Bônus de +15% Capture Boost (3h)",
+            "cost": 1500,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "3 horas de +15% na chance de captura no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRYBSMKB16PSECVRNFNE91",
+            "title": "Bônus +15% XP PokeIdle (5h)",
+            "cost": 1500,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "5 horas de +15% de XP (treinador e pokemon) no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRYC1F1MATHGEBMM3A2K0P",
+            "title": "Bônus de +15% Capture Boost (5h)",
+            "cost": 2500,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "5 horas de +15% na chance de captura no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRYBHQV14QPJ2D6SDZDZCR",
+            "title": "Bônus de +15% Secret Lure (3h)",
+            "cost": 3000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "3 horas de +15% na chance de shiny no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRYCH34R55G8RBHFPXRSNM",
+            "title": "Bônus +15% XP PokeIdle (10h)",
+            "cost": 3000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "10 horas de +15% de XP (treinador e pokemon) no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRYC99HZSJXAVY12JQZ2KT",
+            "title": "Bônus de +15% Secret Lure (5h)",
+            "cost": 5000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "5 horas de +15% na chance de shiny no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRYCS47MTVYM4HSNRK6HWW",
+            "title": "Bônus de +15% Capture Boost (10h)",
+            "cost": 5000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "10 horas de +15% na chance de captura no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRYD0X441QYDXFSX8V1QD1",
+            "title": "Bônus de +15% Secret Lure (10h)",
+            "cost": 10000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "10 horas de +15% na chance de shiny no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          }
+        ],
+        "message": "OK"
+      }
+    },
+    {
+      "slug": "techzz",
+      "url": "https://kick.com/api/v2/channels/techzz/rewards?is_enabled=true",
+      "httpStatus": 200,
+      "body": {
+        "data": [
+          {
+            "id": "01M4XNQVQ8N04BXCZRF70SQB1E",
+            "title": "Bônus +15% XP PokeIdle",
+            "cost": 300,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "1 hora de +15% de XP (treinador e pokemon) no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M4XNQVYXA8VGSFMRKCHBCWPP",
+            "title": "Bônus de +15% Capture Boost",
+            "cost": 500,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "1 hora de +15% na chance de captura no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KS15W3HKSYEZ77Z48HAKFF",
+            "title": "Bônus +15% XP PokeIdle (3h)",
+            "cost": 900,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "3 horas de +15% de XP (treinador e pokemon) no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M4XNQW6GD8KZYG6M6QR8JD25",
+            "title": "Bônus de +15% Secret Lure",
+            "cost": 1000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "1 hora de +15% na chance de shiny no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KS1638FKEDCHB3FF3P1DRG",
+            "title": "Bônus de +15% Capture Boost (3h)",
+            "cost": 1500,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "3 horas de +15% na chance de captura no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KS16J1FG54HGEXBJ2P103T",
+            "title": "Bônus +15% XP PokeIdle (5h)",
+            "cost": 1500,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "5 horas de +15% de XP (treinador e pokemon) no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KS16SJ2GRWJMY01SG6Y9B1",
+            "title": "Bônus de +15% Capture Boost (5h)",
+            "cost": 2500,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "5 horas de +15% na chance de captura no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KS16AHY12DVMTEED2DDDNB",
+            "title": "Bônus de +15% Secret Lure (3h)",
+            "cost": 3000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "3 horas de +15% na chance de shiny no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KS177Z9Q7GPWECCAXJH0W5",
+            "title": "Bônus +15% XP PokeIdle (10h)",
+            "cost": 3000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "10 horas de +15% de XP (treinador e pokemon) no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KS170Q9TNTWHDVFT77Z5XC",
+            "title": "Bônus de +15% Secret Lure (5h)",
+            "cost": 5000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "5 horas de +15% na chance de shiny no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KS17GW14M4Q2F73Y6NFX0W",
+            "title": "Bônus de +15% Capture Boost (10h)",
+            "cost": 5000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "10 horas de +15% na chance de captura no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KS17RD9HMB2GBHMJGJNFVN",
+            "title": "Bônus de +15% Secret Lure (10h)",
+            "cost": 10000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "10 horas de +15% na chance de shiny no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          }
+        ],
+        "message": "OK"
+      }
+    },
+    {
+      "slug": "clovaobengalalol",
+      "url": "https://kick.com/api/v2/channels/clovaobengalalol/rewards?is_enabled=true",
+      "httpStatus": 200,
+      "body": {
+        "data": [
+          {
+            "id": "01M3WT9X6W5CB4XYW3W48XC251",
+            "title": "Bônus +15% XP PokeIdle",
+            "cost": 300,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "1 hora de +15% de XP (treinador e pokemon) no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M3WT9XZ0XMG18FZY1BSW0PJX",
+            "title": "Bônus de +15% Capture Boost",
+            "cost": 500,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "1 hora de +15% na chance de captura no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRXHX5F5EAS8SH8G84XAE8",
+            "title": "Bônus +15% XP PokeIdle (3h)",
+            "cost": 900,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "3 horas de +15% de XP (treinador e pokemon) no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M3WT9Y3JXZSRTEAD7MKD3460",
+            "title": "Bônus de +15% Secret Lure",
+            "cost": 1000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "1 hora de +15% na chance de shiny no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRXJN4Z1PVV1FNE0APK389",
+            "title": "Bônus +15% XP PokeIdle (5h)",
+            "cost": 1500,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "5 horas de +15% de XP (treinador e pokemon) no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRXJ557KEJV3R1PXW39XSP",
+            "title": "Bônus de +15% Capture Boost (3h)",
+            "cost": 1500,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "3 horas de +15% na chance de captura no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRXJX0PQQFZGPT5VS6K1JM",
+            "title": "Bônus de +15% Capture Boost (5h)",
+            "cost": 2500,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "5 horas de +15% na chance de captura no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRXJD4SH5FRW9D26W8CEQR",
+            "title": "Bônus de +15% Secret Lure (3h)",
+            "cost": 3000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "3 horas de +15% na chance de shiny no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRXM2PSND8D7J3W323WZPH",
+            "title": "Bônus +15% XP PokeIdle (10h)",
+            "cost": 3000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "10 horas de +15% de XP (treinador e pokemon) no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01K6AYVN4QJ3VJQ6RHMD20AR1A",
+            "title": "Tome na mesa",
+            "cost": 5000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "testar os ganhos de pontos dando le na mesa"
+          },
+          {
+            "id": "01M6KRXK4ZGBR0QAC0FNZZ9MX1",
+            "title": "Bônus de +15% Secret Lure (5h)",
+            "cost": 5000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "5 horas de +15% na chance de shiny no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRXMAMC1WPBZSK0TB7N0X6",
+            "title": "Bônus de +15% Capture Boost (10h)",
+            "cost": 5000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "10 horas de +15% na chance de captura no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          },
+          {
+            "id": "01M6KRXMJNT7DCRHFP5RMZW77Q",
+            "title": "Bônus de +15% Secret Lure (10h)",
+            "cost": 10000,
+            "is_enabled": true,
+            "is_paused": false,
+            "description": "10 horas de +15% na chance de shiny no PokeIdle. As horas acumulam. Vincule sua Kick no jogo (Bônus na Kick) antes de resgatar: sem vínculo, os pontos voltam."
+          }
+        ],
+        "message": "OK"
+      }
+    }
+  ],
+  "observations": {
+    "yetzLivestream": null,
+    "yetzMetadataUrl": "https://kick.com/api/v2/channels/yetz",
+    "offlineCatalogHttpStatus": 200,
+    "missingChannel": {
+      "url": "https://kick.com/api/v2/channels/terino_catalog_probe_9f472/rewards?is_enabled=true",
+      "httpStatus": 404,
+      "body": {
+        "error": "Not Found",
+        "message": "Channel not found.",
+        "status": 404
+      }
+    },
+    "invalidFilter": {
+      "url": "https://kick.com/api/v2/channels/yetz/rewards?is_enabled=not-a-boolean",
+      "httpStatus": 200,
+      "body": {
+        "data": [],
+        "message": "OK"
+      }
+    },
+    "viewerSpecificConsumerFields": [
+      "points",
+      "channel_roles.is_broadcaster",
+      "transaction_id",
+      "message"
+    ],
+    "notObserved": [
+      "is_in_stock",
+      "authenticated viewer eligibility",
+      "successful redemption response",
+      "paused reward example"
+    ]
+  }
+}
