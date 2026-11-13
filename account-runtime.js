@@ -111,23 +111,21 @@ function setupSession() {
   });
 }
 
-// Deixa só a menor qualidade (160p) na lista de qualidades da live — o mesmo que escolher 160p no player.
+// Mantém a menor variante real de vídeo; áudio e metadados permanecem associados.
 function lowestQualityOnly(playlist) {
   const lines = playlist.split('\n');
-  const head = [];
+  const keep = [];
   const variants = [];
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith('#EXT-X-STREAM-INF')) { variants.push([lines[i], lines[i + 1]]); i++; }
-    else if (!variants.length) head.push(lines[i]);
+    if (lines[i].startsWith('#EXT-X-STREAM-INF')) { variants.push([lines[i], lines[i + 1]]); i++; } else keep.push(lines[i]);
   }
-  if (variants.length < 2) return null;
+  const video = variants.filter(([inf]) => /RESOLUTION=/.test(inf) && !/audio_only/i.test(inf));
+  if (video.length < 2) return null;
   const bandwidth = (l) => Number((l.match(/BANDWIDTH=(\d+)/) || [0, Infinity])[1]);
-  variants.sort((a, b) => bandwidth(a[0]) - bandwidth(b[0]));
-  return [...head, ...variants[0]].join('\n') + '\n';
+  video.sort((a, b) => bandwidth(a[0]) - bandwidth(b[0]));
+  return [...keep.filter((l) => l.trim()), ...video[0]].join('\n') + '\n';
 }
 
-// Página "vazia" em kick.com: mesma origem e cookies, mas sem carregar o site inteiro.
-const LIGHT_URL = `${KICK}/robots.txt`;
 
 function releaseLoginWindow(win=apiWin) {
   if(!win)return;

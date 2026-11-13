@@ -106,7 +106,7 @@ function loadApp({ packaged = false, platform = 'win32', configSeed = null, sing
   };
   vm.createContext(context);
   const runtimeSource = fs.readFileSync(path.join(root, 'account-runtime.js'), 'utf8')
-    .replace('return runtime;', 'runtime.__test = { poll, refreshChannel, snapshot, setupSession, status, stores: storeWindows, get config() { return config; }, get client() { return apiClient; } }; return runtime;');
+    .replace('return runtime;', 'runtime.__test = { lowestQualityOnly, poll, refreshChannel, snapshot, setupSession, status, stores: storeWindows, get config() { return config; }, get client() { return apiClient; } }; return runtime;');
   const runtimeContainer = { exports: {} };
   vm.runInContext('(function(require,module,__dirname){' + runtimeSource + '\n})', context, { filename: path.join(root, 'account-runtime.js') })(context.require, runtimeContainer, root);
   const runtimeModule = runtimeContainer.exports;
