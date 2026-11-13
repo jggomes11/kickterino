@@ -229,9 +229,10 @@ async function kickFetch(apiPath, options) {
   return result;
 }
 async function verifyIdentity() {
+  let denied=0;
   for (const path of ['/api/v1/user', '/api/v2/user']) {
     const {status: code, json} = await kickFetch(path);
-    if (code === 401 || code === 403) continue;
+    if (code === 401 || code === 403) {denied++;continue;}
     const user = json && (json.user || json.data?.user || json.data || json);
     const id = user?.id;
     if (code === 200 && ((typeof id === 'number' && Number.isSafeInteger(id) && id > 0) || (typeof id === 'string' && /^[1-9][0-9]{0,19}$/.test(id)))
@@ -239,6 +240,7 @@ async function verifyIdentity() {
       return { id: 'id:' + id, username: user.username };
     }
   }
+  if(denied!==2)throw new Error('Identity verification unavailable');
   return null;
 }
 
