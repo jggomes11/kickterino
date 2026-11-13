@@ -580,7 +580,7 @@ async function showReport() {
   const line = el('div', 'report-timeline');
   line.title = 'Últimas 24 horas: verde = algum bônus ativo';
   for (const on of r.timeline) line.append(el('i', on ? 'on' : ''));
-  const bought = el('div', 'report-bought', r.bought.map((b) => `${b.count}× ${shortName(b.name)}`).join(' · ') + (r.channels ? ` · em ${r.channels} canais` : ''));
+  const bought = el('div', 'report-bought', r.bought.map((b) => `${b.count} h ${shortName(b.name)}`).join(' · ') + (r.channels ? ` · em ${r.channels} canais` : ''));
   card.append(head, big, el('h4', null, 'Pontos por dia'), days, el('h4', null, 'Bônus ativo por período'), periods,
     el('h4', null, 'Últimas 24 h'), line, bought);
   const actions = el('div', 'modal-actions');

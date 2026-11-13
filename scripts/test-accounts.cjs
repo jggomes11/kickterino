@@ -59,6 +59,10 @@ async function quit(){
    await c.call('Network.setCookie',{url:'https://marker.invalid',name:'isolation',value:'FAKE_'+n,expires:Date.now()/1000+86400});
    await c.call('Page.navigate',{url:'https://kick.com/robots.txt'});
   }
+  assert.equal(await evaluate(ui,'document.querySelectorAll("#bonus-target option").length'),13,'all canonical package choices must render');
+  await evaluate(ui,'{const s=document.querySelector("#bonus-target");s.value="capture:3";s.dispatchEvent(new Event("change",{bubbles:true}));}true');
+  await until(async()=> (await evaluate(ui,'window.kick.getState()')).bonusTarget==='capture:3','canonical target IPC');
+  assert.equal(await evaluate(ui,'(window.kick.getState()).then(s=>s.channels[0].targetCost)'),1500,'channel catalog package price');
   const all=await evaluate(ui,'window.kick.getState()');
   assert.equal(all.accounts.length,4);assert(all.accounts.every(a=>a.watching===2));
   assert.deepEqual(ui.exceptions,[]);

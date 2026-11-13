@@ -23,7 +23,7 @@ const DEFAULT_CONFIG = {
   maxWatchers: 2,
   lowQuality: true,
   rotation: true,
-  bonusTarget: '', // 0 = automático (300, 500, 1.000); ou o custo do único bônus que a pessoa quer
+  bonusTarget: '', // automático ou tipo:duração (xp:1, capture:3, lure:10)
   notifyBonus: true,
   notifyChat: true,  // menções ao seu nome e sorteios no chat
   sleepMode: false,  // "antes de dormir": só aparece para quem ligar

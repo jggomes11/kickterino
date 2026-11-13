@@ -5,3 +5,5 @@ dist/
 dist-linux/
 .superpowers/
 release-output/
+
+validation-output/
