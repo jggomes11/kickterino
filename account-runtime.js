@@ -5,7 +5,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { selectReportAccount } = require('./security/accounts');
 const { migrateBonuses } = require('./security/bonuses');
-function createAccountRuntime({ id, partition, dataDirectory, emit, onChanged, showMain, isSelected = () => true, isOpenAtLogin }) {
+function createAccountRuntime({ id, partition, dataDirectory, emit, onChanged, showMain, isSelected = () => true, isOpenAtLogin, getPartners }) {
 const PARTITION = partition;
 const KICK = 'https://kick.com';
 const POLL_MS = 60 * 1000;
@@ -59,12 +59,11 @@ function saveConfig() {
 
 let mainWin = null;
 let stopped = false;
-const timers = new Set();
-const intervals = new Set();
-const later = (callback, ms) => { const timer = setTimeout(() => { timers.delete(timer); if (!stopped) callback(); }, ms); timers.add(timer); return timer; };
-const repeat = (callback, ms) => { const timer = setInterval(() => { if (!stopped) callback(); }, ms); intervals.add(timer); return timer; };
+const timers = require('./security/timers').createTimers({setTimeout,clearTimeout,setInterval,clearInterval});
+const later=timers.after,repeat=timers.every,withTimeout=timers.withTimeout;
 let apiWin = null;
 let apiReady = null;
+let loginStartedForAccount = null;
 const watchers = new Map(); // slug -> BrowserWindow
 const status = new Map();   // slug -> { live, viewers, chatroomId, title, points, watchedMs, watchingSince, error }
 
@@ -90,11 +89,13 @@ function isHiddenWatcher(webContents) {
 
 const ALLOWED_PERMISSIONS = new Set(['fullscreen', 'clipboard-sanitized-write']);
 
+let sessionSetup=false;
 function setupSession() {
+  if(sessionSetup)return;sessionSetup=true;
   const ses = session.fromPartition(PARTITION);
   ses.setSpellCheckerEnabled(false);
   ses.cookies.on('changed', (_event, cookie) => {
-    if (['session_token', 'XSRF-TOKEN'].includes(cookie.name)) {
+    if (!stopped && !suspended && ['session_token', 'XSRF-TOKEN'].includes(cookie.name)) {
       invalidateSession(true);
       later(() => { if (!suspended) poll(); }, 250);
     }
@@ -128,38 +129,41 @@ function lowestQualityOnly(playlist) {
 // Página "vazia" em kick.com: mesma origem e cookies, mas sem carregar o site inteiro.
 const LIGHT_URL = `${KICK}/robots.txt`;
 
-async function withTimeout(promise, ms) {
-  let timer;
-  try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), ms); })]); }
-  finally { clearTimeout(timer); }
+function releaseLoginWindow(win=apiWin) {
+  if(!win)return;
+  if(apiWin===win){apiWin=null;apiReady=null;loginStartedForAccount=null;}
+  if(!win.isDestroyed())win.destroy();
 }
-
-function loadApi(url) {
-  apiReady = new Promise((resolve) => apiWin.webContents.once('did-finish-load', resolve));
-  apiWin.loadURL(url).catch(() => {});
-  return apiReady;
-}
-
 function createApiWindow() {
-  apiWin = new BrowserWindow({
-    width: 1100, height: 800, show: false, title: 'Kick — login', autoHideMenuBar: true,
-    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, partition: PARTITION, backgroundThrottling: false },
+  if(stopped || suspended)throw new Error('Session changed');
+  if(apiWin && !apiWin.isDestroyed())return apiWin;
+  const win=new BrowserWindow({
+    width:1100,height:800,show:false,title:'Kick — login',autoHideMenuBar:true,
+    icon:path.join(__dirname,'build','icon.png'),
+    webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,partition:PARTITION,backgroundThrottling:false},
   });
-  apiWin.webContents.setAudioMuted(true);
-  // Sem internet ou com a Kick fora do ar: tenta de novo sozinho. Nunca durante o login.
-  const retryApi = () => later(() => { if (apiWin && !apiWin.isDestroyed() && !apiWin.isVisible()) loadApi(LIGHT_URL); }, 30 * 1000);
-  apiWin.webContents.on('did-fail-load', (_e, code, _desc, _url, isMainFrame) => {
-    if (isMainFrame && code !== -3) retryApi();
+  apiWin=win;apiReady=null;
+  loginStartedForAccount=loggedIn&&!sessionChecking?identity:null;
+  win.webContents.setAudioMuted(true);
+  win.webContents.on('render-process-gone',()=>releaseLoginWindow(win));
+  win.on('closed',()=>{
+    if(apiWin===win){apiWin=null;apiReady=null;loginStartedForAccount=null;}
+    send('status');
+    if(!stopped && !suspended)void poll();
   });
-  apiWin.webContents.on('render-process-gone', retryApi);
-  loadApi(LIGHT_URL);
-  // Fechar a janela de login apenas a esconde e volta para a página leve.
-  apiWin.on('close', (e) => {
-    if (app.isQuitting) return;
-    e.preventDefault();
-    apiWin.hide();
-    loadApi(LIGHT_URL).then(poll);
-  });
+  send('status');
+  return win;
+}
+function loadApi(url,win=apiWin) {
+  if(stopped || suspended || !win || win.isDestroyed())return Promise.reject(new Error('Session changed'));
+  if(apiReady)return apiReady;
+  let onClosed;
+  const closed=new Promise((_,reject)=>{onClosed=()=>reject(new Error('Session changed'));win.once('closed',onClosed);});
+  const task=withTimeout(Promise.race([Promise.resolve().then(()=>win.loadURL(url)),closed]),45000)
+    .catch(()=>{if(!stopped && !suspended && apiWin===win && !win.isDestroyed())throw new Error('Não foi possível abrir o login da Kick. Tente novamente.');})
+    .finally(()=>{win.removeListener('closed',onClosed);if(apiReady===task)apiReady=null;});
+  apiReady=task;
+  return task;
 }
 
 // Loja de pontos: o chat popout oficial da Kick, que tem o saldo e as recompensas do canal.
@@ -179,7 +183,7 @@ function openStore(slug, title = `Pontos — ${slug}`) {
   win.on('closed', () => {
     if (storeWindows.get(slug) === win) storeWindows.delete(slug);
     if (!sessionCurrent(epoch) || !loggedIn) return;
-    refreshChannel(slug).then(() => send('status', snapshot()));
+    refreshChannel(slug).then(() => send('status'));
     if (storeSequence && storeSequence.current === slug) openNextStore();
   });
   storeWindows.set(slug, win);
@@ -191,12 +195,12 @@ function openNextStore() {
   if (!loggedIn || suspended) { storeSequence = null; return; }
   const seq = storeSequence;
   const slug = seq && seq.queue.shift();
-  if (!slug) { storeSequence = null; send('status', snapshot()); return; }
+  if (!slug) { storeSequence = null; send('status'); return; }
   seq.current = slug;
   seq.done++;
   const name = (status.get(slug) || {}).displayName || slug;
   openStore(slug, `Pontos — ${name} (${seq.done} de ${seq.total})`);
-  send('status', snapshot());
+  send('status');
 }
 
 // Application transport belongs exclusively to this account session.
@@ -570,12 +574,10 @@ function weeklyReport(now = Date.now()) {
 
 // Lista de parceiros no site: parceiro novo entra para todos sem precisar de versão nova.
 // Quem a pessoa removeu não volta (mesma regra dos canais padrão).
-const PARTNERS_URL = 'https://viinnisantoos.github.io/kickterino/parceiros.json';
 async function syncPartners() {
   try {
-    const res = await net.fetch(PARTNERS_URL, { cache: 'no-store' });
-    if (!res.ok) return;
-    const list = ((await res.json()).channels || []).map(String).filter((s) => /^[a-z0-9_-]{2,30}$/.test(s)).slice(0, 60);
+    const list=await getPartners();
+    if(stopped)return;
     const seen = new Set(config.seenDefaults || []);
     const fresh = list.filter((slug) => !seen.has(slug) && !config.channels.includes(slug));
     config.seenDefaults = [...new Set([...seen, ...list])];
@@ -702,7 +704,7 @@ function logHistory() {
   }
   const line = JSON.stringify({
     t: new Date(now).toISOString(), mainMinimized: !!mainWin && mainWin.isMinimized(),
-    mainFocused: !!mainWin && mainWin.isFocused(), loggedIn, memoryMB: snapshot().memoryMB,
+    mainFocused: !!mainWin && mainWin.isFocused(), loggedIn,
     maxWatchers: config.maxWatchers, limitTest: limitTestSnapshot(), channels,
   });
   const file = path.join(dataDirectory, 'points-log.jsonl');
@@ -892,6 +894,9 @@ function limitTestSnapshot() {
   };
 }
 
+function summary() {
+  return {id,username:loggedIn?username:null,loggedIn,sessionChecking,farming:config.farming,watching:watchers.size,today:loggedIn?config.daily[dayKey(Date.now())]||0:0};
+}
 function snapshot() {
   const now = Date.now();
   return {
@@ -967,6 +972,7 @@ async function poll() {
       resetBalances(); selectReportAccount(config, verified.id); identity = verified.id; saveConfig();
     }
     loggedIn = true; sessionChecking = false; username = verified.username;
+    if(apiWin && loginStartedForAccount!==verified.id)releaseLoginWindow();
     for (const slug of [...config.channels]) {
       await refreshChannel(slug);
       if (!sessionCurrent(epoch)) return;
@@ -980,7 +986,7 @@ async function poll() {
     if (sessionCurrent(epoch)) { invalidateSession(true); username = null; }
   } finally {
     polling = false; syncKeepAwake();
-    send('status', snapshot()); updateTray();
+    send('status'); updateTray();
   }
 }
 
@@ -999,13 +1005,12 @@ function setFarming(on) {
   syncKeepAwake();
   reconcileWatchers();
   updateTray();
-  send('status', snapshot());
+  send('status');
 }
 
 // Depois de suspender ou ficar sem rede, as lives abertas não voltam sozinhas: reabre tudo.
 function recoverAfterResume() {
   for (const slug of [...watchers.keys()]) if (!isShown(slug)) stopWatcher(slug);
-  if (apiWin && !apiWin.isDestroyed() && !apiWin.isVisible()) loadApi(LIGHT_URL);
   later(poll, 15 * 1000);
 }
 
@@ -1089,9 +1094,9 @@ handleIpc('lowQuality:set', (_e, on) => {
 });
 handleIpc('refresh', async () => { await poll(); return snapshot(); });
 handleIpc('login:show', async () => {
-  if (!apiWin || apiWin.isDestroyed()) createApiWindow();
-  apiWin.show(); apiWin.focus();
-  await loadApi(`${KICK}/login`);
+  const win=createApiWindow();
+  win.show(); win.focus();
+  await loadApi(`${KICK}/login`,win);
 });
 // Sair da conta: apaga cookies, cache e tudo que as páginas guardaram, inclusive o login do
 // Google, Apple ou Discord. A lista de canais e as preferências ficam.
@@ -1112,7 +1117,7 @@ handleIpc('logout', async () => {
   ses.flushStorageData();
   status.clear();
   cookieFingerprint = null;
-  if (apiWin && !apiWin.isDestroyed()) loadApi(LIGHT_URL);
+  releaseLoginWindow();
   suspended = false; apiClient.resume(); sessionChecking = false;
   return snapshot();
 });
@@ -1132,7 +1137,7 @@ handleIpc('channel:show', (_e, slug) => {
   win.webContents.reload();
   const s = status.get(slug);
   if (s) s.ageGate = false;
-  send('status', snapshot());
+  send('status');
 });
 handleIpc('chat:send', async (_e, { chatroomId, content }) => {
   const { status: code, json } = await kickFetch(`/api/v2/messages/send/${chatroomId}`, {
@@ -1143,7 +1148,8 @@ handleIpc('chat:send', async (_e, { chatroomId, content }) => {
 
 
 const runtime = {
-  id, partition, snapshot, poll, recoverAfterResume,
+  id, partition, snapshot, summary, poll, recoverAfterResume,
+  resources:()=>[{role:'login',accountId:id,window:apiWin},...Array.from(watchers,([slug,window])=>({role:'player',accountId:id,window,manual:userOpened.has(window)})),...Array.from(storeWindows.values(),window=>({role:'store',accountId:id,window,manual:true}))],
   getIpcContext: () => ({ channels: config.channels, chatroomIds: [...status.values()].map(s => s.chatroomId).filter(Boolean), viewport: mainWin?.getContentSize() || [0,0] }),
   invoke(command, event, args) {
     const handler = commands.get(command);
@@ -1153,9 +1159,8 @@ const runtime = {
   start(window) {
     if (stopped || mainWin) return;
     mainWin = window;
-    loadConfig(); setupSession(); createApiWindow(); syncKeepAwake(); poll();
+    loadConfig(); setupSession(); syncKeepAwake(); poll();
     repeat(poll, POLL_MS);
-    repeat(() => send('status', snapshot()), 15000);
     repeat(() => { checkBonusEnding(); updateTray(); }, 30000);
     later(syncPartners, 30000);
     repeat(syncPartners, 6 * 60 * 60 * 1000);
@@ -1163,9 +1168,7 @@ const runtime = {
   stop() {
     if (stopped) return;
     stopped = true; suspended = true; invalidateSession(); apiClient.suspend();
-    for (const timer of timers) clearTimeout(timer);
-    for (const timer of intervals) clearInterval(timer);
-    timers.clear(); intervals.clear();
+    timers.stop();
     if (awakeBlocker != null) { powerSaveBlocker.stop(awakeBlocker); awakeBlocker = null; }
     if (apiWin && !apiWin.isDestroyed()) apiWin.destroy();
     for (const notification of liveNotifications) notification.close();

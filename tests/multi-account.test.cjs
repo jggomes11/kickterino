@@ -71,6 +71,7 @@ test('account IPC validates slot and channel ownership before dispatch and rejec
 
 test('official popups keep their source session after another account is selected', async () => {
   const app=loadApp(); await app.start();
+  await app.runtimes[1].invoke('login:show',app.event(),[]);
   const login=app.state.windows.find(w=>w.options.webPreferences?.partition==='persist:kick-account-2');
   app.manager.select('account-4');
   const options=login.webContents.openHandler({url:'https://accounts.google.com/ServiceLogin'});
@@ -93,6 +94,7 @@ test('slot1 retains existing profile paths and no aggregate snapshot contains a 
 });
 test('regional Google login windows retain their source session', async()=>{
  const a=loadApp();await a.start();
+ await a.runtimes[1].invoke('login:show',a.event(),[]);
  const login=a.state.windows.find(w=>w.options.webPreferences?.partition==='persist:kick-account-2');
  for(const url of ['https://accounts.google.com.br/signin','https://accounts.google.co.uk/signin']){
   assert.equal(login.webContents.openHandler({url}).action,'allow',url);
