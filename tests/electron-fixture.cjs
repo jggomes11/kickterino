@@ -53,6 +53,7 @@ app.whenReady().then(async()=>{
   assert.equal((await win.webContents.executeJavaScript('window.kick.getState()')).accountId,'account-1');
   await win.loadURL(origin);
   assert.equal(await win.webContents.executeJavaScript('typeof window.kick'),'undefined');
+  await require('./account-controls-electron.cjs')();
   win.destroy();
   console.log('Electron transport/redirect/timeout/invalidation, Kick headers and local-only preload: PASS');
   app.exit(0);

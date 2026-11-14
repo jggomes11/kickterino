@@ -60,14 +60,6 @@ input:focus, select:focus { outline: none; border-color: var(--violet); box-shad
 .brand { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px; background: var(--grad); color: #fff; font-weight: 900; font-size: 16px; padding: 0; box-shadow: var(--glow); }
 .brand-name { margin: 0; font-size: 16px; font-weight: 800; letter-spacing: .01em; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
-/* Interruptor grande "Juntar pontos" */
-.switch { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; padding: 4px 12px 4px 6px; border-radius: 999px; background: rgba(14, 28, 19, .6); border: 1px solid var(--border); }
-.switch input { display: none; }
-.switch-ui { width: 38px; height: 22px; border-radius: 999px; background: #304a37; position: relative; transition: background .2s; }
-.switch-ui::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .2s cubic-bezier(.3, 1.5, .5, 1); }
-.switch input:checked + .switch-ui { background: var(--grad); box-shadow: var(--glow); }
-.switch input:checked + .switch-ui::after { transform: translateX(16px); }
-.switch-text { font-weight: 600; }
 .target { display: flex; align-items: center; gap: 4px; }
 
 #summary { display: flex; gap: 6px; margin-left: auto; background: none; border: 0; padding: 0; min-width: 0; overflow: hidden; }
@@ -78,9 +70,6 @@ input:focus, select:focus { outline: none; border-color: var(--violet); box-shad
 .stat.on b { color: var(--cyan); }
 .stat.up b { color: #7dffb3; }
 .stat.warn { border-color: rgba(255, 207, 74, .4); }
-#btn-login { font-weight: 700; }
-#btn-login:not(.ok) { background: var(--grad); border: 0; color: #fff; }
-#btn-login.ok { background: rgba(14, 28, 19, .6); border-color: rgba(62, 230, 255, .35); color: var(--cyan); }
 #btn-panel.wide { white-space: nowrap; }
 
 /* ---------- Configurações (gaveta) ---------- */
@@ -252,7 +241,7 @@ button.group:hover { color: var(--text); background: none; box-shadow: none; }
 }
 @media (max-width: 900px) {
   #rail { width: 200px; }
-  .brand-name, .switch-text { display: none; }
+  .brand-name { display: none; }
 }
 .stat.gold b { color: var(--gold); }
 .chest-mini.claiming { animation: chest-spin 1s ease-in-out infinite; background: linear-gradient(135deg, #7dffb3, #3ee6ff); }
@@ -272,3 +261,19 @@ option { background: #111e16; color: var(--text); }
 
 /* Dialog actions stay above responsive bonus panels and the settings drawer. */
 #modal { z-index: 25; }
+
+/* Cabeçalho do canal no mesmo formato da Twitch. */
+#chat-header { flex-wrap: wrap; }
+#chat-header, #price-bar { flex-shrink: 0; }
+#chat-title { flex: 1 1 240px; }
+.hero-text { flex: 1; }
+.hero-name b { overflow-wrap: anywhere; }
+#chat-actions { margin-left: auto; }
+#chat-actions button { color: var(--text); white-space: nowrap; font-weight: 600; }
+#btn-show { display: inline-flex; align-items: center; gap: 6px; }
+.hero-text .age-gate { margin-top: 4px; font-size: 11px; white-space: normal; }
+#price-bar { display: flex; flex-wrap: wrap; align-items: center; font-size: 12px; }
+#price-bar:empty { display: none; }
+.price-label, .price-none { color: var(--muted); }
+.price-chip { white-space: nowrap; }
+.price-chip b { font-weight: 600; margin-right: 2px; }

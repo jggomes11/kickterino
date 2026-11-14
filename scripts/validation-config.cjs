@@ -8,7 +8,7 @@ module.exports = function validationConfig(root, version) {
   const channels = block ? [...block[1].matchAll(/'([a-z0-9_-]+)'/g)].map(match => match[1]) : [];
   assert(channels.length > 0, 'No validation channels were found');
   return {
-    configVersion: 2, channels, seenDefaults: channels, farming: false, maxWatchers: 2, rotation: true,
+    configVersion: 2, channels, seenDefaults: channels, farming: true, maxWatchers: 2, rotation: true,
     bonusTarget:'',bonusSchemaVersion:1,notifyBonus:false,notifyChat:false,
     lastSeenVersion: version, daily: {}, purchases: [],
   };

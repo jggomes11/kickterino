@@ -37,10 +37,11 @@ test('a delayed report cannot reopen after the same slot invalidates and verifie
   h.driver.applyState({...h.initial,sessionRevision:3});release(report);await old;
   assert.equal(h.$('#modal').hidden,true);
 });
-test('a delayed old-session state cannot restore private data after redaction',()=>{
-  const h=renderHarness();h.driver.applyState({...h.initial,sessionRevision:2,loggedIn:false,sessionChecking:true});
+test('a delayed old-session state cannot restore private data after redaction',async()=>{
+  const h=renderHarness();await h.driver.showReport();h.driver.applyState({...h.initial,sessionRevision:2,loggedIn:false,sessionChecking:true});
   assert.equal(h.driver.applyState({...h.initial,sessionRevision:1}),false);
-  assert.equal(h.$('#btn-logout').hidden,true);
+  assert.equal(h.$('#modal').hidden,true);
+  assert.equal(h.$('#modal-card').children.length,0);
 });
 test('sleep purchase counts exclude unavailable selected packages and normalized one-hour estimates',()=>{
   for(const target of ['capture:3','']) {
