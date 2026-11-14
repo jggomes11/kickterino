@@ -57,7 +57,7 @@
       const entry = { card, select, name, detail, settings, menu, disconnect };
       select.onclick = () => {
         closeMenu();
-        if (entry.account.loggedIn) Promise.resolve(onSelect(id)).catch(onError);
+        if (entry.account.loggedIn && !entry.account.sessionChecking) Promise.resolve(onSelect(id)).catch(onError);
         else run(id, 'connect', onConnect);
       };
       settings.onclick = () => openId === id ? closeMenu() : openMenu(id);
@@ -77,12 +77,14 @@
         if (!card) { card = makeCard(account.id); cards.set(account.id, card); }
         card.account = account;
         const checking = !!account.sessionChecking;
-        const connected = !!account.loggedIn;
+        const connected = !!account.loggedIn && !checking;
         const busy = pending.get(account.id);
         card.card.classList.toggle('active', account.id === selectedId);
         card.select.setAttribute('aria-pressed', String(account.id === selectedId));
-        card.select.disabled = checking || !!busy;
-        card.name.textContent = connected || checking ? account.username || account.label : 'Adicionar conta';
+        // Identity checks can remain unavailable while the official login still
+        // works. Only an in-flight card action should block an explicit login.
+        card.select.disabled = !!busy;
+        card.name.textContent = connected ? account.username || account.label : 'Adicionar conta';
         card.detail.textContent = busy === 'disconnect' ? 'Desconectando…' : busy === 'connect' ? 'Conectando…'
           : checking ? 'Verificando sessão…' : connected ? account.detail : account.label;
         card.select.title = `${account.label}${connected && account.username ? ': ' + account.username : ''} — ${card.detail.textContent}`;

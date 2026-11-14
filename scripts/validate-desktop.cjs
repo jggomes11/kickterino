@@ -259,8 +259,8 @@ async function freePort() {
       const state = await window.${namespace}.getState();
       return { accountId: state.accountId, loggedIn: state.loggedIn, sessionChecking: state.sessionChecking };
     })()`);
-    // The account card is disabled while the initial identity request runs.
-    // Wait for the real UI to enable it; a disabled .click() is silently ignored.
+    // Only a pending card operation may disable Add account. An unavailable
+    // identity check must still allow the user to open the official login.
     await clickAccountLoginWhenReady(expression => evaluate(main, expression), '#accounts .account-card > .account-tab', {
       onObserve: control => { report.loginControl = control; },
     });

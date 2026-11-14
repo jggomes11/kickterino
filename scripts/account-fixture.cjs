@@ -17,7 +17,7 @@ async function quitApplication(client, timeoutMs = 10000) {
   assert(!isRunning(client.child), 'Application did not quit gracefully');
   assert.equal(client.child.exitCode, 0, 'Application did not exit successfully after quit');
 }
-async function clickAccountLoginWhenReady(evaluatePage, selector, { timeoutMs = 45000, onObserve = () => {} } = {}) {
+async function clickAccountLoginWhenReady(evaluatePage, selector, { timeoutMs = 5000, onObserve = () => {} } = {}) {
   const deadline = Date.now() + timeoutMs;
   let control;
   while (Date.now() < deadline) {
