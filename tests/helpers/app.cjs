@@ -6,9 +6,10 @@ const { EventEmitter } = require('node:events');
 const { pathToFileURL } = require('node:url');
 const { createRequire } = require('node:module');
 
-function loadApp({ packaged = false, platform = 'win32', configSeed = null, singleInstance = true, env = {}, argv = [], loginRegistry = new Map() } = {}) {
+function loadApp({ packaged = false, platform = 'win32', configSeed = null, singleInstance = true, env = {}, argv = [], loginRegistry = new Map(), notifications = false } = {}) {
   const root = path.resolve(__dirname, '../..');
   const state = { scripts: [], requests: [], writes: [], quit: 0, updates: 0, windows: [], ready: [], dialogResponse: 0, sockets: [], timers: [], reloads: [] };
+  state.metricsReads=0;state.intervals=[];state.trayMenus=[];state.trayTips=[];state.partnerRequests=[];state.partnerChannels=[];state.sent=[];state.notifications=[];
   state.blockers = new Set(); let blockerId = 0;
   state.paths = {}; state.loginItems = []; state.loginQueries = [];
   const cookies = new EventEmitter();
@@ -39,10 +40,10 @@ function loadApp({ packaged = false, platform = 'win32', configSeed = null, sing
       wc.setWindowOpenHandler = handler => { wc.openHandler = handler; };
       wc.setAudioMuted = () => {};
       wc.getURL = () => wc.mainFrame.url;
-      wc.send = () => {};
+      wc.send = (channel,payload) => state.sent.push({channel,payload});
       wc.stop = () => {};
       wc.reload = () => { state.reloads.push(wc.id); };
-      wc.debugger = { isAttached: () => false, attach() {}, on() {}, sendCommand: async () => ({}) };
+      wc.debugger = Object.assign(new EventEmitter(), { isAttached: () => false, attach() {}, sendCommand: async () => ({}) });
       wc.executeJavaScript = async code => { state.scripts.push(code); return { status: 200, text: '{"data":{"currentUser":{"login":"page"}}}' }; };
       wc.capturePage = async () => ({ toPNG: () => Buffer.from('png') });
       state.windows.push(this);
@@ -64,7 +65,7 @@ function loadApp({ packaged = false, platform = 'win32', configSeed = null, sing
   Object.assign(app, {
     commandLine: { appendSwitch() {} }, userAgentFallback: 'Chrome/100 Electron/45', isPackaged: packaged,
     getPath: name => state.paths[name] || '/fake/' + name, setPath: (name, value) => { state.paths[name] = value; }, getVersion: () => JSON.parse(fs.readFileSync(path.join(root, 'package.json'))).version,
-    requestSingleInstanceLock: () => singleInstance, quit: () => { state.quit++; }, setAppUserModelId() {}, getAppMetrics: () => [],
+    requestSingleInstanceLock: () => singleInstance, quit: () => { state.quit++; }, setAppUserModelId() {}, getAppMetrics: () => {state.metricsReads++;return [];},
     whenReady: () => ({ then: callback => { state.ready.push(callback); } }),
     getLoginItemSettings: query => {
       state.loginQueries.push(query);
@@ -77,8 +78,8 @@ function loadApp({ packaged = false, platform = 'win32', configSeed = null, sing
   });
   const handlers = new Map();
   const image = { resize() { return this; }, getSize: () => ({ width: 16, height: 16 }) };
-  class Tray extends EventEmitter { setToolTip() {} setContextMenu() {} }
-  class Notification extends EventEmitter { static isSupported() { return false; } show() {} }
+  class Tray extends EventEmitter { setToolTip(t){state.trayTips.push(t);} setContextMenu(m){state.trayMenus.push(m);} }
+  class Notification extends EventEmitter { constructor(options){super();this.options=options;} static isSupported() { return notifications; } show() {state.notifications.push(this.options);} close(){this.emit('close');} }
   const electron = {
     app, BrowserWindow: Window, ipcMain: { handle: (channel, fn) => { handlers.set(channel, fn); } },
     session: { fromPartition: partition => { if (!/^persist:(twitch|kick|kick-account-[2-4])$/.test(partition)) throw new Error('Wrong partition'); return getSession(partition); } },
@@ -86,7 +87,7 @@ function loadApp({ packaged = false, platform = 'win32', configSeed = null, sing
     Tray, Menu: { buildFromTemplate: () => ({}) }, Notification,
     nativeImage: { createFromPath: () => image, createFromDataURL: () => image },
     powerSaveBlocker: { start() { const id=++blockerId; state.blockers.add(id); return id; }, stop(id) { state.blockers.delete(id); }, isStarted: id => state.blockers.has(id) }, powerMonitor: new EventEmitter(),
-    net: { fetch: async () => new Response('{"channels":[]}') },
+    net: {fetch:async(url,options)=>{state.partnerRequests.push({url,options});return new Response(JSON.stringify({channels:state.partnerChannels}));}},
   };
   const ownRequire = createRequire(path.join(root, 'main.js'));
   const context = {
@@ -101,11 +102,11 @@ function loadApp({ packaged = false, platform = 'win32', configSeed = null, sing
     __dirname: root, module: { exports: {} }, Buffer, URL, console, AbortController, TextDecoder, structuredClone,
     process: { platform, env, argv, execPath: '/fake/Kickterino.exe' },
     setTimeout: (callback, delay) => { const timer = { callback, delay, cancelled: false }; state.timers.push(timer); return timer; },
-    clearTimeout(timer) { if (timer) timer.cancelled = true; }, setInterval: () => 1, clearInterval() {}, setImmediate, queueMicrotask,
+    clearTimeout(timer) { if (timer) timer.cancelled = true; }, setInterval:(callback,delay)=>{const timer={callback,delay,cancelled:false};state.intervals.push(timer);return timer;},clearInterval(timer){if(timer)timer.cancelled=true;}, setImmediate, queueMicrotask,
   };
   vm.createContext(context);
   const runtimeSource = fs.readFileSync(path.join(root, 'account-runtime.js'), 'utf8')
-    .replace('return runtime;', 'runtime.__test = { poll, refreshChannel, snapshot, setupSession, status, stores: storeWindows, get config() { return config; }, get client() { return apiClient; } }; return runtime;');
+    .replace('return runtime;', 'runtime.__test = { lowestQualityOnly, poll, refreshChannel, snapshot, setupSession, status, stores: storeWindows, get config() { return config; }, get client() { return apiClient; } }; return runtime;');
   const runtimeContainer = { exports: {} };
   vm.runInContext('(function(require,module,__dirname){' + runtimeSource + '\n})', context, { filename: path.join(root, 'account-runtime.js') })(context.require, runtimeContainer, root);
   const runtimeModule = runtimeContainer.exports;

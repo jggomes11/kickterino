@@ -16,12 +16,7 @@
     <label class="switch" title="Liga ou pausa as lives ocultas que juntam pontos">
       <input type="checkbox" id="farming"><span class="switch-ui"></span><span class="switch-text">Juntar pontos</span>
     </label>
-    <label class="target" title="Qual bônus o foco deve buscar. XP: 300 pontos; Capture Boost: 500; Secret Lure: 1.000.">🎯 <select id="bonus-target">
-      <option value="0">Automático</option>
-      <option value="300">+15% XP (300)</option>
-      <option value="500">+15% Capture Boost (500)</option>
-      <option value="1000">+15% Secret Lure (1.000)</option>
-    </select></label>
+    <label class="target" title="Meta e pacote de bônus">🎯 <select id="bonus-target"><option value="">Automático</option></select></label>
     <div id="summary"></div>
     <button id="btn-login" title="Abre a Kick para você fazer login (uma vez só)">Entrar com a Kick</button>
     <button id="btn-settings" class="icon" title="Configurações" aria-label="Configurações" aria-controls="settings" aria-expanded="false">⚙</button>
@@ -66,7 +61,8 @@
             <button id="btn-remove" class="icon" title="Remover canal">✕</button>
           </span>
         </div>
-        <div id="messages"></div>
+        <div id="price-bar" class="price-bar"></div>
+      <div id="messages"></div>
         <form id="composer">
           <button type="button" id="btn-points" title="Pontos do canal: abrir a loja de recompensas ">
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-3a6 6 0 1 1-6-6z"/></svg>

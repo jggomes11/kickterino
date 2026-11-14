@@ -54,7 +54,7 @@ test('cookie invalidation and report updates stay in the originating slot', asyn
   const a=app.runtimes[0], b=app.runtimes[1]; const before=b.__test.client.generation;
   app.sessions.get(a.partition).cookies.emit('changed',{}, {name:'session_token',domain:'.kick.com'});
   assert.equal(b.__test.client.generation,before); assert.equal(b.snapshot().loggedIn,true);
-  await app.handlers.get('account:command')(app.event(),{accountId:ids[0],command:'purchase:add',args:[300]});
+  await app.handlers.get('account:command')(app.event(),{accountId:ids[0],command:'purchase:add',args:['xp:1']});
   assert.equal(b.snapshot().purchases.length,0);
 });
 
@@ -71,6 +71,7 @@ test('account IPC validates slot and channel ownership before dispatch and rejec
 
 test('official popups keep their source session after another account is selected', async () => {
   const app=loadApp(); await app.start();
+  await app.runtimes[1].invoke('login:show',app.event(),[]);
   const login=app.state.windows.find(w=>w.options.webPreferences?.partition==='persist:kick-account-2');
   app.manager.select('account-4');
   const options=login.webContents.openHandler({url:'https://accounts.google.com/ServiceLogin'});
@@ -93,6 +94,7 @@ test('slot1 retains existing profile paths and no aggregate snapshot contains a 
 });
 test('regional Google login windows retain their source session', async()=>{
  const a=loadApp();await a.start();
+ await a.runtimes[1].invoke('login:show',a.event(),[]);
  const login=a.state.windows.find(w=>w.options.webPreferences?.partition==='persist:kick-account-2');
  for(const url of ['https://accounts.google.com.br/signin','https://accounts.google.co.uk/signin']){
   assert.equal(login.webContents.openHandler({url}).action,'allow',url);
@@ -103,6 +105,7 @@ test('regional Google login windows retain their source session', async()=>{
 });
 test('selector today total comes from the selected account daily report',async()=>{
  const a=loadApp(),d=new Date();
+ for(let i=0;i<2;i++){const r=a.runtimes[i];setAccount(r,a.sessions.get(r.partition),i+1,100);await r.poll();}
  const day=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
  a.runtimes[0].__test.config.daily[day]=10;a.runtimes[1].__test.config.daily[day]=25;
  assert.equal(a.manager.snapshot().accounts[0].today,10);
