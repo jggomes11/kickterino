@@ -8,6 +8,7 @@ const net = require('node:net');
 const { spawn, spawnSync } = require('node:child_process');
 const pkg = require('../package.json');
 const { closePage } = require('./cdp-client.cjs');
+const { clickAccountLoginWhenReady } = require('./account-fixture.cjs');
 
 const options = Object.fromEntries(process.argv.slice(2).map(arg => {
   const index = arg.indexOf('=');
@@ -254,7 +255,16 @@ async function freePort() {
     }
     assert.deepEqual(main.exceptions, [], 'Unexpected main UI JavaScript exception');
 
-    await evaluate(main, 'document.querySelector("#accounts .account-tab").click()');
+    report.loginReadiness = await evaluate(main, `(async () => {
+      const state = await window.${namespace}.getState();
+      return { accountId: state.accountId, loggedIn: state.loggedIn, sessionChecking: state.sessionChecking };
+    })()`);
+    // The account card is disabled while the initial identity request runs.
+    // Wait for the real UI to enable it; a disabled .click() is silently ignored.
+    await clickAccountLoginWhenReady(expression => evaluate(main, expression), '#accounts .account-card > .account-tab', {
+      onObserve: control => { report.loginControl = control; },
+    });
+    report.checks.push('enabled Add account control clicked through the real UI');
     const loginTarget = await until(async () => (await targets()).find(item => {
         try { const url = new URL(item.url); return item.type === 'page' && url.protocol === 'https:' && (url.hostname === platformHost || url.hostname.endsWith('.' + platformHost)) && url.pathname !== '/robots.txt'; }
         catch { return false; }

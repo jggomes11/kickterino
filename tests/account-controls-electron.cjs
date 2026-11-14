@@ -5,6 +5,7 @@ const assert=require('node:assert/strict');
 const path=require('node:path');
 const {pathToFileURL}=require('node:url');
 const {checkpoint,within,captureAccountScreenshot}=require('./electron-fixture-support.cjs');
+const {clickAccountLoginWhenReady}=require('../scripts/account-fixture.cjs');
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function verify(name,namespace){
  const root=path.resolve(__dirname,'..'), calls=[], errors=[];
@@ -86,6 +87,20 @@ async function verify(name,namespace){
    slots[3].sessionChecking=true;wc.send('status',snapshot());
    await until(`document.querySelector('${card(4)} .account-tab').disabled`);
    assert.equal(await evaluate(`document.querySelector('${card(4)} .account-settings').hidden`),true);
+   checkpoint('account login waits for session verification');
+   await assert.rejects(clickAccountLoginWhenReady(evaluate,card(4)+' .account-tab',{timeoutMs:30}),/enabled Add account control.*"disabled":true/);
+   assert.equal(calls.filter(c=>c.command==='login:show').length,1,'checking must not silently count as a login click');
+   let observedChecking=false;
+   await clickAccountLoginWhenReady(evaluate,card(4)+' .account-tab',{timeoutMs:2000,onObserve:control=>{
+     if(!control.disabled)return;
+     observedChecking=true;
+     assert.equal(calls.filter(c=>c.command==='login:show').length,1,'a disabled Add account control must not open login');
+     slots[3].sessionChecking=false;wc.send('status',snapshot());
+   }});
+   assert.equal(observedChecking,true);
+   await until(`state.accountId==='account-4'`);
+   for(let i=0;i<100&&calls.filter(c=>c.command==='login:show').length<2;i++)await pause(10);
+   assert.equal(calls.filter(c=>c.command==='login:show'&&c.id==='account-4').length,2,'Add account must open login after verification enables its control');
    checkpoint('account narrow layout');
    await debug('Emulation.setDeviceMetricsOverride',{width:600,height:850,deviceScaleFactor:1,mobile:false});
    assert.equal(await evaluate(`getComputedStyle(document.querySelector('#accounts')).gridTemplateColumns.split(' ').length`),2);
