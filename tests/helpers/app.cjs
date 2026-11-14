@@ -1,0 +1,139 @@
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const { EventEmitter } = require('node:events');
+const { pathToFileURL } = require('node:url');
+const { createRequire } = require('node:module');
+
+function loadApp({ packaged = false, platform = 'win32', configSeed = null, singleInstance = true, env = {}, argv = [], loginRegistry = new Map(), notifications = false } = {}) {
+  const root = path.resolve(__dirname, '../..');
+  const state = { scripts: [], requests: [], writes: [], quit: 0, updates: 0, windows: [], ready: [], dialogResponse: 0, sockets: [], timers: [], reloads: [] };
+  state.metricsReads=0;state.intervals=[];state.trayMenus=[];state.trayTips=[];state.partnerRequests=[];state.partnerChannels=[];state.sent=[];state.notifications=[];
+  state.blockers = new Set(); let blockerId = 0;
+  state.paths = {}; state.loginItems = []; state.loginQueries = [];
+  const cookies = new EventEmitter();
+  cookies.get = async ({ name }) => [{ name: name || 'session_token', value: name === 'auth-token' || name === 'session_token' || !name ? 'FAKE_ACCOUNT_TOKEN' : 'FAKE_OTHER_COOKIE' }];
+  const session = {
+    cookies, fetch: async (url, init) => { state.requests.push({ url, init }); return new Response('{"id":123,"username":"tester"}'); },
+    setSpellCheckerEnabled() {}, setUserAgent() {}, setPermissionRequestHandler() {},
+    webRequest: { onBeforeRequest() {} }, clearStorageData: async () => {}, clearCache: async () => {}, clearAuthCache: async () => {}, flushStorageData() {},
+  };
+  const sessions = new Map([['persist:kick', session]]);
+  function getSession(partition = '') {
+    if (!sessions.has(partition)) {
+      const jar = new EventEmitter(); jar.get = cookies.get;
+      sessions.set(partition, { ...session, cookies: jar, webRequest: { onBeforeRequest() {} } });
+    }
+    return sessions.get(partition);
+  }
+  let app;
+  class Window extends EventEmitter {
+    constructor(options = {}) {
+      super(); this.options = options; this.destroyed = false;
+      this.webContents = new EventEmitter();
+      const wc = this.webContents;
+      wc.id = state.windows.length + 1;
+      wc.session = options.webPreferences?.session || getSession(options.webPreferences?.partition);
+      wc.mainFrame = { url: 'about:blank', detached: false };
+      wc.isDestroyed = () => this.destroyed;
+      wc.setWindowOpenHandler = handler => { wc.openHandler = handler; };
+      wc.setAudioMuted = () => {};
+      wc.getURL = () => wc.mainFrame.url;
+      wc.send = (channel,payload) => state.sent.push({channel,payload});
+      wc.stop = () => {};
+      wc.reload = () => { state.reloads.push(wc.id); };
+      wc.debugger = Object.assign(new EventEmitter(), { isAttached: () => false, attach() {}, sendCommand: async () => ({}) });
+      wc.executeJavaScript = async code => { state.scripts.push(code); return { status: 200, text: '{"data":{"currentUser":{"login":"page"}}}' }; };
+      wc.capturePage = async () => ({ toPNG: () => Buffer.from('png') });
+      state.windows.push(this);
+      app.emit('web-contents-created', {}, wc);
+    }
+    loadURL(url) { this.webContents.mainFrame.url = url; queueMicrotask(() => this.webContents.emit('did-finish-load')); return Promise.resolve(); }
+    loadFile(file) { return this.loadURL(pathToFileURL(file).href); }
+    isDestroyed() { return this.destroyed; }
+    isVisible() { return false; }
+    isFocused() { return true; }
+    destroy() { this.destroyed = true; this.emit('closed'); }
+    close() { this.destroy(); }
+    getContentSize() { return [1380, 840]; }
+    getBounds() { return { width: 1380, height: 840 }; }
+    isMinimized() { return false; } restore() {} setMenuBarVisibility() {} show() {} hide() {} focus() {} setOpacity() {} setIgnoreMouseEvents() {} setFocusable() {} setSize() {} setPosition() {} showInactive() {} center() {}
+  }
+  Window.fromWebContents = wc => state.windows.find(w => w.webContents === wc);
+  app = new EventEmitter();
+  Object.assign(app, {
+    commandLine: { appendSwitch() {} }, userAgentFallback: 'Chrome/100 Electron/45', isPackaged: packaged,
+    getPath: name => state.paths[name] || '/fake/' + name, setPath: (name, value) => { state.paths[name] = value; }, getVersion: () => JSON.parse(fs.readFileSync(path.join(root, 'package.json'))).version,
+    requestSingleInstanceLock: () => singleInstance, quit: () => { state.quit++; }, setAppUserModelId() {}, getAppMetrics: () => {state.metricsReads++;return [];},
+    whenReady: () => ({ then: callback => { state.ready.push(callback); } }),
+    getLoginItemSettings: query => {
+      state.loginQueries.push(query);
+      const legacy = loginRegistry.get('app-default');
+      return { openAtLogin: !!legacy?.openAtLogin && legacy.path === query.path && JSON.stringify(legacy.args) === JSON.stringify(query.args),
+        launchItems: [...loginRegistry.entries()].filter(([, item]) => item.path === query.path)
+          .map(([name, item]) => ({ name, path: item.path, args: item.args, scope: 'user', enabled: item.openAtLogin })) };
+    },
+    setLoginItemSettings: item => { state.loginItems.push(item); loginRegistry.set(item.name || 'app-default', item); },
+  });
+  const handlers = new Map();
+  const image = { resize() { return this; }, getSize: () => ({ width: 16, height: 16 }) };
+  class Tray extends EventEmitter { setToolTip(t){state.trayTips.push(t);} setContextMenu(m){state.trayMenus.push(m);} }
+  class Notification extends EventEmitter { constructor(options){super();this.options=options;} static isSupported() { return notifications; } show() {state.notifications.push(this.options);} close(){this.emit('close');} }
+  const electron = {
+    app, BrowserWindow: Window, ipcMain: { handle: (channel, fn) => { handlers.set(channel, fn); } },
+    session: { fromPartition: partition => { if (!/^persist:(twitch|kick|kick-account-[2-4])$/.test(partition)) throw new Error('Wrong partition'); return getSession(partition); } },
+    dialog: { showMessageBox: async () => ({ response: state.dialogResponse }), showSaveDialog: async () => ({ canceled: true }) },
+    Tray, Menu: { buildFromTemplate: () => ({}) }, Notification,
+    nativeImage: { createFromPath: () => image, createFromDataURL: () => image },
+    powerSaveBlocker: { start() { const id=++blockerId; state.blockers.add(id); return id; }, stop(id) { state.blockers.delete(id); }, isStarted: id => state.blockers.has(id) }, powerMonitor: new EventEmitter(),
+    net: {fetch:async(url,options)=>{state.partnerRequests.push({url,options});return new Response(JSON.stringify({channels:state.partnerChannels}));}},
+  };
+  const ownRequire = createRequire(path.join(root, 'main.js'));
+  const context = {
+    require: name => name === 'electron' ? electron : name === 'electron-updater' ? { autoUpdater: { on() {}, checkForUpdatesAndNotify: async () => { state.updates++; } } }
+      : ['fs', 'node:fs'].includes(name) ? { existsSync: () => configSeed !== null, readFileSync: () => JSON.stringify(configSeed || {}), writeFileSync: (...args) => state.writes.push(args), mkdirSync() {}, appendFileSync() {} }
+      : name === './account-runtime' ? runtimeModule : ownRequire(name),
+    WebSocket: class {
+      constructor() { this.readyState = 0; this.messages = []; state.sockets.push(this); }
+      send(message) { this.messages.push(message); }
+      close() { this.readyState = 3; if (this.onclose) this.onclose(); }
+    },
+    __dirname: root, module: { exports: {} }, Buffer, URL, console, AbortController, TextDecoder, structuredClone,
+    process: { platform, env, argv, execPath: '/fake/Kickterino.exe' },
+    setTimeout: (callback, delay) => { const timer = { callback, delay, cancelled: false }; state.timers.push(timer); return timer; },
+    clearTimeout(timer) { if (timer) timer.cancelled = true; }, setInterval:(callback,delay)=>{const timer={callback,delay,cancelled:false};state.intervals.push(timer);return timer;},clearInterval(timer){if(timer)timer.cancelled=true;}, setImmediate, queueMicrotask,
+  };
+  vm.createContext(context);
+  const runtimeSource = fs.readFileSync(path.join(root, 'account-runtime.js'), 'utf8')
+    .replace('return runtime;', 'runtime.__test = { lowestQualityOnly, poll, refreshChannel, snapshot, setupSession, status, stores: storeWindows, get config() { return config; }, get client() { return apiClient; } }; return runtime;');
+  const runtimeContainer = { exports: {} };
+  vm.runInContext('(function(require,module,__dirname){' + runtimeSource + '\n})', context, { filename: path.join(root, 'account-runtime.js') })(context.require, runtimeContainer, root);
+  const runtimeModule = runtimeContainer.exports;
+  vm.runInContext(fs.readFileSync(path.join(root, 'main.js'), 'utf8') + '\nmodule.exports = { manager, runtimes, setMain(win) { mainWin = win; } };', context, { filename: path.join(root, 'main.js') });
+  const {manager,runtimes} = context.module.exports;
+  for (const runtime of runtimes) getSession(runtime.partition);
+  const main = new Window(); main.loadFile(path.join(root, 'renderer/index.html'));
+  const api = new Window(); api.loadURL('https://kick.com/login');
+  context.module.exports.setMain(main);
+  const apiExports = runtimes[0].__test;
+  // Attach a cookie observer for single-account regression callers without starting players/login windows.
+  apiExports.setupSession();
+  const accountHandler = handlers.get('account:command');
+  for (const command of ['channels:add','channels:remove','farming:set','notifyBonus:set','notifyChat:set','sleepMode:set','favorite:toggle','purchase:add','purchase:remove','stores:sequence','stores:cancel','report:get','report:save','intro:done','maxWatchers:set','rotation:set','bonusTarget:set','limitTest:start','limitTest:stop','lowQuality:set','refresh','login:show','logout','store:open','channel:show','chat:send']) {
+    handlers.set(command, async (event, ...args) => (await accountHandler(event, { accountId:'account-1', command, args })).result);
+  }
+  return {
+    state, app, session, sessions, handlers, main, api, apiExports, runtimes, manager, dialog: electron.dialog,
+    event: () => { const current = state.windows.findLast(w => w.options.webPreferences?.preload) || main; return { sender: current.webContents, senderFrame: current.webContents.mainFrame }; },
+    async fireTimers(delay) {
+      const timers = state.timers.filter(timer => timer.delay === delay);
+      state.timers = state.timers.filter(timer => timer.delay !== delay);
+      for (const timer of timers) if (!timer.cancelled) await timer.callback();
+      await new Promise(resolve => setImmediate(resolve));
+    },
+    async start() { for (const callback of state.ready) await callback(); await new Promise(resolve => setImmediate(resolve)); },
+  };
+}
+module.exports = { loadApp };
+

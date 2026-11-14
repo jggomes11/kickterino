@@ -9,77 +9,95 @@
   <link rel="stylesheet" href="theme.css">
 </head>
 <body>
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+
   <header id="toolbar">
-    <span class="brand">K</span><span class="brand-name">Kickterino</span>
-    <button id="btn-login" title="Abre a Kick para você fazer login (uma vez só)">Login Kick</button>
-    <button id="btn-logout" title="Apaga os dados de login salvos neste PC" hidden>Sair da conta</button>
-    <label class="toggle"><input type="checkbox" id="farming"> Farmar pontos</label>
-    <label class="toggle" title="Lives ocultas rodam em 160p, sem imagens: gasta bem menos memória e internet"><input type="checkbox" id="low-quality"> Modo leve (160p)</label>
-    <label title="Quantas lives tocam ao mesmo tempo. Nos testes, a Kick só contou pontos em 2 lives por vez: mais que isso gasta memória sem render mais pontos. As outras ficam na fila.">Lives ao mesmo tempo <input type="number" id="max-watchers" min="1" max="30"></label>
-    <label class="toggle" title="Ligado: as vagas vão para os canais mais perto do bônus escolhido e, quando um chega lá, passa para o próximo. Canais em que você é sub vêm primeiro enquanto estiverem ao vivo. Desligado: ficam só os primeiros canais da lista."><input type="checkbox" id="rotation"> Foco em bônus</label>
-    <label title="Qual bônus o foco deve buscar. Automático: todos chegam a 300, depois 500 e 1.000. Escolhendo um, as vagas juntam pontos até o custo dele nos canais mais perto, e só esse bônus avisa.">Bônus <select id="bonus-target">
-      <option value="0">Automático</option>
-      <option value="300">+15% XP (300)</option>
-      <option value="500">+15% Capture Boost (500)</option>
-      <option value="1000">+15% Secret Lure (1.000)</option>
-    </select></label>
-    <label class="toggle" id="autostart-label" title="Abre sozinho, direto na bandeja, quando o Windows liga"><input type="checkbox" id="autostart"> <span>Iniciar com o Windows</span></label>
-    <label class="toggle" title="Avisa quando um canal alcança 300, 500 ou 1.000 pontos"><input type="checkbox" id="notify-bonus"> Avisar bônus</label>
-    <button id="btn-refresh">Atualizar</button>
-    <span id="summary"></span>
-    <span id="memory" title="Memória total usada pelo Kickterino"></span>
-    <button id="btn-panel" title="Painel de pontos">Pontos ▸</button>
-    <button id="btn-quit" title="Fecha o Kickterino de vez (para o farm)" hidden>Sair</button>
+    <div class="logo"><span class="brand">K</span><span class="brand-name">Kickterino</span></div>
+    <label class="switch" title="Liga ou pausa as lives ocultas que juntam pontos">
+      <input type="checkbox" id="farming"><span class="switch-ui"></span><span class="switch-text">Juntar pontos</span>
+    </label>
+    <label class="target" title="Meta e pacote de bônus">🎯 <select id="bonus-target"><option value="">Automático</option></select></label>
+    <div id="summary"></div>
+    <button id="btn-login" title="Abre a Kick para você fazer login (uma vez só)">Entrar com a Kick</button>
+    <button id="btn-settings" class="icon" title="Configurações" aria-label="Configurações" aria-controls="settings" aria-expanded="false">⚙</button>
+    <button id="btn-panel" class="icon wide" title="Painel de pontos e bônus">Bônus ▸</button>
   </header>
 
-  <nav id="tabs"></nav>
+  <nav id="accounts" aria-label="Contas da Kick"></nav>
+  <p id="account-hint">Até quatro contas independentes. As outras continuam coletando quando você troca a conta exibida.</p>
 
-  <main>
-    <section id="chat-col">
-      <div id="chat-header">
-        <span id="chat-title"></span>
-        <span id="chat-actions">
-          <button id="btn-fav" title="Favoritar: o canal fica no começo das abas e você recebe um aviso quando ele entrar ao vivo">☆</button>
-          <button id="btn-show" title="Abre a live com vídeo e som">Abrir live</button>
-          <button id="btn-remove" title="Remover canal">✕</button>
-        </span>
-      </div>
-      <div id="messages"></div>
-      <form id="composer">
-        <button type="button" id="btn-points" title="Pontos do canal: abrir a loja de recompensas">
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="7" r="4.2"/><circle cx="7" cy="15" r="4.2"/><circle cx="17" cy="15" r="4.2"/></svg>
-          <span id="points-val">—</span>
-        </button>
-        <input id="input" autocomplete="off" placeholder="Enviar mensagem…">
-      </form>
-    </section>
+  <div id="settings" role="region" aria-label="Configurações da conta" hidden>
+    <h3>Configurações</h3>
+    <label class="toggle"><input type="checkbox" id="rotation"> <span><b>Foco em bônus</b><small>As vagas vão para os canais mais perto do próximo bônus. Subs vêm primeiro.</small></span></label>
+    <label class="row" title="Quantidade de lives simultâneas por conta.">
+      <span><b>Limite de lives</b><small>Padrão: duas lives por conta; as outras aguardam uma vaga.</small></span><input type="number" id="max-watchers" min="1" max="30"></label>
+    <label class="toggle"><input type="checkbox" id="low-quality"> <span><b>Modo leve (160p)</b><small>Lives ocultas sem imagem nem qualidade alta: menos memória e internet.</small></span></label>
+    <label class="toggle" id="autostart-label"><input type="checkbox" id="autostart"> <span><b>Iniciar com o Windows</b><small>Abre direto na bandeja, perto do relógio.</small></span></label>
+    <h4>Avisos</h4>
+    <label class="toggle"><input type="checkbox" id="notify-bonus"> <span><b>Bônus disponível</b><small>Quando um canal alcança o preço de um bônus.</small></span></label>
+    <label class="toggle"><input type="checkbox" id="notify-chat"> <span><b>Menções e sorteios</b><small>Destaque no chat e aviso com a janela escondida.</small></span></label>
+    <label class="toggle"><input type="checkbox" id="sleep-mode"> <span><b>Modo antes de dormir</b><small>Botão que abre as lojas uma de cada vez. Desligado por padrão.</small></span></label>
+    <div class="settings-foot">
+      <button id="btn-refresh">↻ Atualizar agora</button>
+      <button id="btn-logout" hidden>Sair da conta</button>
+      <button id="btn-quit" hidden>Fechar o app</button>
+      <span id="memory" title="Memória total usada pelo Kickterino"></span>
+    </div>
+  </div>
 
-    <aside id="panel" hidden>
-      <h2>Bônus ativos</h2>
-      <div id="bonus-box"></div>
-      <div id="sleep-box" hidden><button id="btn-sleep" title="Mostra os canais com pontos para comprar bônus e abre as lojas uma de cada vez">🌙 Antes de dormir</button></div>
-      <h2>Pontos do canal</h2>
-      <table>
-        <thead><tr><th>Canal</th><th>Status</th><th>Pontos</th><th>Assistido</th></tr></thead>
-        <tbody id="panel-rows"></tbody>
-      </table>
-      <div id="limit-box">
-        <button id="btn-limit" title="Abre todas as lives ao vivo e mede quantas a Kick conta; se não forem todas, testa números menores (~20 min por etapa) e ajusta o app para o que rende mais pontos">Descobrir limite de lives</button>
-        <div id="limit-info"></div>
-      </div>
-      <div id="tools">
-        <button id="btn-report" title="Pontos, bônus comprados e tempo com bônus ativo nos últimos 7 dias">📊 Relatório da semana</button>
-        <label class="toggle" title="Destaca no chat quando alguém escreve seu nome e quando aparece um sorteio, e avisa se a janela estiver escondida"><input type="checkbox" id="notify-chat"> Avisar menções e sorteios</label>
-        <label class="toggle" title="Mostra o botão Antes de dormir no topo deste painel: ele lista os canais com pontos para bônus e abre as lojas uma de cada vez. Só abre quando você clica."><input type="checkbox" id="sleep-mode"> Modo antes de dormir</label>
-      </div>
-      <p class="hint">A Kick dá 10 pontos a cada ~5 min por live, mas só conta cerca de 2 lives por vez por conta. Como o saldo é separado por canal, o padrão é 2 lives com foco em bônus: as vagas vão para quem está mais perto de 300 e, depois que todos chegam lá, de 500 e 1.000. Canais em que você é sub rendem o dobro: têm prioridade e ficam até sair do ar, sem meta de bônus. A primeira contagem chega ~6–7 min depois que a live abre (status AQUECENDO).</p>
+  <div id="shell">
+    <aside id="rail">
+      <div class="search"><input id="rail-search" placeholder="Buscar canal…" autocomplete="off"></div>
+      <nav id="tabs"></nav>
     </aside>
-  </main>
+
+    <main>
+      <section id="chat-col">
+        <div id="chat-header">
+          <span id="chat-title"></span>
+          <span id="chat-actions">
+            <button id="btn-fav" class="icon" title="Fixar: o canal fica no topo da lista e você recebe um aviso quando ele entrar ao vivo">☆</button>
+            <button id="btn-show" title="Mostra o player com som. Juntar pontos inicia a coleta automaticamente em segundo plano.">▶ Mostrar player</button>
+            <button id="btn-remove" class="icon" title="Remover canal">✕</button>
+          </span>
+        </div>
+        <div id="price-bar" class="price-bar"></div>
+      <div id="messages"></div>
+        <form id="composer">
+          <button type="button" id="btn-points" title="Pontos do canal: abrir a loja de recompensas ">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-3a6 6 0 1 1-6-6z"/></svg>
+            <span id="points-val">—</span>
+          </button>
+          <input id="input" autocomplete="off" placeholder="Enviar mensagem…">
+        </form>
+      </section>
+
+      <aside id="panel" hidden>
+        <h2>Bônus ativos</h2>
+        <div id="bonus-box"></div>
+        <div id="sleep-box" hidden><button id="btn-sleep" title="Mostra os canais com pontos para comprar bônus e abre as lojas uma de cada vez">🌙 Antes de dormir</button></div>
+        <h2>Pontos por canal</h2>
+        <table>
+          <thead><tr><th>Canal</th><th>Status</th><th>Pontos</th><th>Assistido</th></tr></thead>
+          <tbody id="panel-rows"></tbody>
+        </table>
+        <div id="limit-box">
+          <button id="btn-limit">Descobrir limite de lives</button>
+          <div id="limit-info"></div>
+        </div>
+        <div id="tools">
+          <button id="btn-report" title="Pontos, bônus comprados e tempo com bônus ativo nos últimos 7 dias">📊 Relatório da semana</button>
+        </div>
+        <p class="hint">A Kick dá 10 pontos a cada ~5 min por live, mas só conta cerca de 2 lives por vez por conta. Como o saldo é separado por canal, o padrão é 2 lives com foco em bônus: as vagas vão para quem está mais perto de 300 e, depois que todos chegam lá, de 500 e 1.000. Canais em que você é sub rendem o dobro: têm prioridade e ficam até sair do ar, sem meta de bônus. A primeira contagem chega ~6–7 min depois que a live abre (status AQUECENDO).</p>
+      </aside>
+    </main>
+  </div>
 
   <div id="modal" hidden><div id="modal-card"></div></div>
   <div id="toasts"></div>
   <canvas id="confetti"></canvas>
 
+  <script src="../security/account-view.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

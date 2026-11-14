@@ -3,7 +3,14 @@
 const MAX_MESSAGES = 400;
 
 const $ = (sel) => document.querySelector(sel);
-let state = { channels: [], farming: true, maxWatchers: 10 };
+const accountView = AccountView.createAccountViewGuard();
+// All awaited UI operations capture the current view, including reports and chat replies.
+const api = Object.fromEntries(Object.entries(window.kick).map(([key, method]) => [key,
+  typeof method !== 'function' || key.startsWith('on') || key === 'selectAccount' ? method
+    : (...args) => accountView.run(() => method(...args)),
+]));
+const fmt = value => Number(value).toLocaleString('pt-BR');
+let state = { channels: [], farming: true, maxWatchers: 2 };
 let active = null;
 const buffers = new Map();   // slug -> array de elementos .msg
 const unread = new Set();
@@ -86,36 +93,92 @@ function pushMessage(slug, node) {
   }
 }
 
-// ---------- Abas ----------
+// ---------- Canais na lateral ----------
+let offlineOpen = false;
+try { offlineOpen = localStorage.getItem('offlineOpen') === '1'; } catch {}
+let railFilter = '';
+
+function avatar(ch, size = '') {
+  const av = el('div', `av ${size}`);
+  const pct = ch.goal && ch.points != null ? Math.min(100, Math.round((ch.points / ch.goal) * 100)) : 0;
+  av.style.setProperty('--p', `${pct}%`);
+  if (ch.avatar) { const img = el('img'); img.src = ch.avatar; img.alt = ''; img.loading = 'lazy'; av.append(img); }
+  else av.append(el('span', 'initial', ch.displayName.slice(0, 1).toUpperCase()));
+  if (ch.subscribed) { const c = el('span', 'crown', '👑'); c.title = 'Você é sub'; av.append(c); }
+  if (ch.live) av.append(el('span', 'live-dot'));
+  return av;
+}
+
+function pendingPlaybackLabel() {
+  if (state.sessionChecking) return 'VERIFICANDO SESSÃO';
+  if (!state.farming) return 'PAUSADO';
+  if (!state.loggedIn) return 'ENTRAR';
+  return state.rotation ? 'NA FILA' : 'SEM VAGA';
+}
+
+function channelCard(ch) {
+  const favs = new Set(state.favorites || []);
+  const queued = ch.live && !ch.watching;
+  const card = el('div', 'ch' + (ch.live ? ' live' : '') + (ch.watching ? ' watching' : '') + (queued ? ' queued' : '')
+    + (ch.slug === active ? ' active' : '') + (ch.subscribed ? ' is-sub' : '') + (ch.earning === 'earning' ? ' earning' : ''));
+  const info = el('div', 'ch-info');
+  const name = el('div', 'ch-name');
+  if (favs.has(ch.slug)) name.append(el('span', 'fav-star', '★'));
+  name.append(el('span', 'ch-label', ch.displayName));
+  if (unread.has(ch.slug) && ch.slug !== active) name.append(el('span', 'unread-dot'));
+  const sub = el('div', 'ch-sub');
+  if (ch.ageGate) sub.append(el('span', 'warn', '⚠ confirmar idade'));
+  else if (ch.earning === 'earning') sub.append(el('span', 'earn', '● ganhando'));
+  else if (ch.earning === 'warming') sub.append(el('span', 'warm', '◌ aquecendo'));
+  else if (ch.earning === 'idle') sub.append(el('span', 'idle', '○ sem pontos'));
+  else if (ch.live) sub.append(el('span', 'viewers', `${fmt(ch.viewers)} assistindo${queued ? ' · ' + pendingPlaybackLabel().toLowerCase() : ''}`));
+  else sub.append(el('span', 'off', 'offline'));
+  info.append(name, sub);
+  const side = el('div', 'ch-side');
+  if (ch.points != null) side.append(el('span', 'ch-pts', fmt(ch.points)));
+  card.append(avatar(ch), info, side);
+  const goalLine = ch.goalLeft != null ? `\nFaltam ${fmt(ch.goalLeft)} pts para ${fmt(ch.goal)}` : '';
+  card.title = (ch.live ? `AO VIVO · ${fmt(ch.viewers)} espectadores\n${ch.title}` : 'offline') + goalLine
+    + (ch.subscribed ? `\nSub: pontos ×${'2'}` : '');
+  card.dataset.slug = ch.slug;
+  card.onclick = () => select(ch.slug);
+  return card;
+}
+
 function renderTabs() {
   const nav = $('#tabs');
   nav.replaceChildren();
-  // Favoritos primeiro (só na tela: a ordem da lista, usada sem o foco em bônus, não muda).
   const favs = new Set(state.favorites || []);
-  const ordered = [...state.channels.filter((c) => favs.has(c.slug)), ...state.channels.filter((c) => !favs.has(c.slug))];
-  for (const ch of ordered) {
-    const queued = ch.live && !ch.watching;
-    const t = el('div', 'tab' + (ch.live ? ' live' : '') + (queued ? ' queued' : '') + (ch.ageGate ? ' age' : '') + (ch.slug === active ? ' active' : ''));
-    if (favs.has(ch.slug)) t.append(el('span', 'fav-star', '★ '));
-    const name = el('span', unread.has(ch.slug) && ch.slug !== active ? 'unread' : '', ch.displayName);
-    t.append(name);
-    if (ch.subscribed) { const s = el('span', 'tab-sub', 'SUB'); s.title = 'Você é sub: pontos em dobro'; t.append(s); }
-    if (ch.live) t.append(el('span', 'dot'));
-    t.title = !ch.live ? 'offline'
-      : `AO VIVO · ${ch.viewers} espectadores\n${ch.title}`
-        + (queued ? '\nNa fila: entra quando abrir uma vaga (o chat aparece quando estiver assistindo)' : '');
-    t.onclick = () => select(ch.slug);
-    nav.append(t);
+  const q = railFilter.trim().toLowerCase();
+  const list = state.channels.filter((c) => !q || c.displayName.toLowerCase().includes(q) || c.slug.includes(q));
+  const byLive = (a, b) => (b.live - a.live) || (b.watching - a.watching) || (b.viewers - a.viewers);
+  const pinned = list.filter((c) => favs.has(c.slug) || c.subscribed).sort(byLive);
+  const rest = list.filter((c) => !pinned.includes(c));
+  const live = rest.filter((c) => c.live).sort(byLive);
+  const off = rest.filter((c) => !c.live);
+  const group = (title, items, extra) => {
+    if (!items.length) return;
+    const h = el('div', 'group', title);
+    if (extra) h.append(extra);
+    nav.append(h, ...items.map(channelCard));
+  };
+  group('📌 Fixados', pinned);
+  group(`🔴 Ao vivo · ${live.length}`, live);
+  if (off.length) {
+    const h = el('button', 'group toggle-off', `Offline · ${off.length} ${offlineOpen || q ? '▴' : '▾'}`);
+    h.onclick = () => { offlineOpen = !offlineOpen; try { localStorage.setItem('offlineOpen', offlineOpen ? '1' : '0'); } catch {} renderTabs(); };
+    nav.append(h);
+    if (offlineOpen || q) nav.append(...off.map(channelCard));
   }
-  const add = el('div', 'tab add', '+');
-  add.title = 'Adicionar canal';
+  if (!list.length) nav.append(el('div', 'rail-empty', 'Nenhum canal com esse nome.'));
+  const add = el('button', 'add-ch', '＋ Adicionar canal');
   add.onclick = () => {
-    const input = el('input');
-    input.placeholder = 'nome do canal';
-    add.replaceChildren(input);
+    const input = el('input', 'add-input');
+    input.placeholder = 'nome ou link do canal';
+    add.replaceWith(input);
     input.focus();
     const done = async (commit) => {
-      if (commit && input.value.trim()) { state = await window.kick.addChannel(input.value); select(state.channels[state.channels.length - 1].slug); }
+      if (commit && input.value.trim()) { if (!applyState(await api.addChannel(input.value))) return; select(state.channels[state.channels.length - 1].slug); }
       renderTabs();
     };
     input.onkeydown = (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); };
@@ -123,6 +186,7 @@ function renderTabs() {
   };
   nav.append(add);
 }
+$('#rail-search').oninput = (e) => { railFilter = e.target.value; renderTabs(); };
 
 function select(slug) {
   active = slug;
@@ -135,8 +199,17 @@ function select(slug) {
   $('#input').focus();
 }
 
+function renderPriceBar(ch) {
+  const bar=$('#price-bar');bar.replaceChildren();if(!ch)return;
+  if(ch.catalog?.state!=='known'){bar.append(el('span',null,'Preços estimados · catálogo indisponível'));return;}
+  if(!ch.hasBonus){bar.append(el('span',null,'Bônus indisponíveis neste canal'));return;}
+  for(const kind of KINDS){const list=(ch.rewards||[]).filter(r=>r.kind===kind);if(!list.length)continue;
+    const chip=el('span','price-chip',`${shortName(BONUS_NAMES[kind])}: ${list.map(r=>`${r.hours}h ${fmt(r.cost)}${r.available?'':' (pausado)'}`).join(' · ')}`);bar.append(chip);}
+  if(state.bonusTarget)bar.append(el('span','price-chip',`Meta: ${fmt(ch.targetCost)} pts${ch.targetEstimated?' (estimativa)':''}`));
+}
 function renderHeader() {
   const ch = state.channels.find((c) => c.slug === active);
+  renderPriceBar(ch);
   const title = $('#chat-title');
   title.replaceChildren();
   const fav = !!ch && (state.favorites || []).includes(ch.slug);
@@ -147,7 +220,7 @@ function renderHeader() {
   if (ch.ageGate) {
     const warn = el('button', 'age-gate', '⚠ Canal +18: clique para confirmar a idade');
     warn.title = 'A Kick pede confirmação de idade antes de tocar esta live. Sem isso, ela não conta pontos.';
-    warn.onclick = () => window.kick.showChannel(ch.slug);
+    warn.onclick = () => api.showChannel(ch.slug);
     title.prepend(warn, ' ');
   }
   $('#input').placeholder = ch.chatroomId ? `Enviar mensagem em ${ch.displayName}…` : 'Carregando canal…';
@@ -238,16 +311,77 @@ function renderPanel() {
   renderLimitTest();
   renderBonusBox();
   $('#sleep-box').hidden = !state.sleepMode;
-  $('#summary').textContent = !state.loggedIn ? `${live} ao vivo · Faça login para farmar pontos` : `${live} ao vivo · ${watching} assistindo`
-    + (queued ? (state.rotation ? ` · ${queued} na fila (foco no próximo bônus)` : ` · ${queued} sem vaga`) : '')
-    + ` · ${totalPts.toLocaleString('pt-BR')} pts`
-    + (gained ? ` (+${gained.toLocaleString('pt-BR')} nesta sessão)` : '');
+  const summary = $('#summary');
+  summary.replaceChildren();
+  const chip = (icon, value, label, cls = '') => {
+    const item = el('span', 'stat ' + cls);
+    item.append(el('i', null, icon), el('b', null, value), el('small', null, label));
+    summary.append(item);
+  };
+  chip('🔴', String(live), 'ao vivo');
+  if (state.loggedIn) {
+    chip('▶', String(watching), queued ? `assistindo · ${queued} aguardando` : 'assistindo', watching ? 'on' : '');
+    chip('💚', fmt(totalPts), 'pontos');
+    chip('📈', `+${fmt(state.today || 0)}`, 'hoje', 'up');
+  }
+  summary.title = !state.loggedIn ? 'Entre com a Kick para juntar pontos' : `+${fmt(gained)} pontos nesta sessão`;
+
+}
+
+function renderAccounts() {
+  const nav = $('#accounts');
+  const accounts = state.accounts || Array.from({length: 4}, (_, index) => ({id: `account-${index + 1}`, label: `Conta ${index + 1}`}));
+  for (const account of accounts) {
+    let button = nav.querySelector(`[data-account-id="${account.id}"]`);
+    if (!button) {
+      button = el('button', 'account-tab'); button.type = 'button';
+      button.dataset.accountId = account.id;
+      button.onclick = () => selectAccount(account.id);
+      nav.append(button);
+    }
+    const selected = account.id === accountView.accountId;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-pressed', String(selected));
+    const detail = account.sessionChecking ? 'Verificando sessão…' : !account.loggedIn ? 'Conectar Kick'
+      : !account.farming ? 'Coleta pausada' : `${account.watching} lives · +${fmt(account.today || 0)} pts hoje`;
+    button.replaceChildren(el('b', null, account.username || account.label), el('small', null, detail));
+    button.title = `${account.label}${account.username ? ': ' + account.username : ''} — ${detail}`;
+  }
+}
+
+async function selectAccount(id) {
+  const previous = accountView.accountId;
+  if (id === previous) return true;
+  const ticket = accountView.select(id);
+  // Dismiss the old account's UI without issuing commands against the new account.
+  $('#modal').hidden = true; modalKind = null; introShown = false;
+  lastGiveawayAlert.clear();
+  setSettings(false); railFilter = ''; $('#rail-search').value = '';
+  buffers.clear(); unread.clear(); sleepPicked.clear(); active = null;
+  $('#messages').replaceChildren(); $('#input').value = ''; $('#toasts').replaceChildren();
+  state = { channels: [], accounts: state.accounts, farming: false, accountId: id };
+  renderAccounts(); renderTabs(); renderHeader(); renderPanel();
+  try {
+    const next = await api.selectAccount(id);
+    return accountView.isCurrent(ticket) && applyState(next);
+  } catch {
+    if (!accountView.isCurrent(ticket)) return false;
+    accountView.select(previous);
+    applyState(await api.selectAccount(previous));
+    toast('Não foi possível trocar a conta. Tente novamente.');
+    return false;
+  }
 }
 
 function applyState(s) {
+  if (s && s.accountId === state.accountId && Number.isSafeInteger(s.sessionRevision)
+    && Number.isSafeInteger(state.sessionRevision) && s.sessionRevision < state.sessionRevision) return false;
+  if (!accountView.accept(s)) return false;
+  if (modalKind === 'report' && (!s.loggedIn || s.sessionChecking || s.sessionRevision !== state.sessionRevision)) closeModal();
   const prevLive = new Map(state.channels.map((c) => [c.slug, c.live]));
   celebrate(state, s);
   state = s;
+  renderAccounts();
   for (const ch of state.channels) {
     const was = prevLive.get(ch.slug);
     if (was === false && ch.live) pushMessage(ch.slug, systemMessage(`${ch.displayName} entrou ao vivo.`));
@@ -257,8 +391,7 @@ function applyState(s) {
   $('#farming').checked = state.farming;
   $('#low-quality').checked = state.lowQuality;
   $('#rotation').checked = state.rotation;
-  $('#bonus-target').value = String(state.bonusTarget || 0);
-  $('#bonus-target').disabled = !state.rotation;
+  renderTargetSelect();
   $('#autostart').checked = !!state.openAtLogin;
   // No Linux a bandeja pode não aparecer (GNOME sem extensão), então o Sair fica também na janela.
   if (state.platform === 'linux') {
@@ -279,6 +412,7 @@ function applyState(s) {
   renderTabs();
   renderHeader();
   renderPanel();
+  return true;
 }
 
 // ---------- Bônus ativos e previsão ----------
@@ -292,6 +426,37 @@ function etaText(ch) {
   return `⏱ ${clock(min * 60000)} → ${ch.goal.toLocaleString('pt-BR')}`;
 }
 
+let targetKey = '';
+function renderTargetSelect() {
+  const sel = $('#bonus-target');
+  const opts = state.bonusOptions || [];
+  const key = JSON.stringify(opts.map((o) => [o.value, o.cost, o.channels]));
+  if (key !== targetKey && opts.length) {
+    targetKey = key;
+    const icons = { xp: '⚡', capture: '🎯', lure: '✨' };
+    sel.replaceChildren(el('option', null, 'Bônus automático'));
+    sel.firstChild.value = '';
+    for (const k of KINDS) {
+      const group = document.createElement('optgroup');
+      group.label = `${icons[k]} ${BONUS_NAMES[k]}`;
+      for (const o of opts.filter((x) => x.kind === k)) {
+        const opt = el('option', null, `${shortName(BONUS_NAMES[k])} · ${o.hours} h — ${o.varies ? '~' : ''}${fmt(o.cost)} pts`);
+        opt.value = o.value;
+        if (o.estimated) opt.textContent += ' (estimativa)';
+        group.append(opt);
+      }
+      sel.append(group);
+    }
+  }
+  const value = state.bonusTarget && !state.bonusTarget.includes(':') ? `${state.bonusTarget}:1` : (state.bonusTarget || '');
+  sel.value = value;
+  sel.disabled = !state.rotation;
+  const t = opts.find((o) => o.value === value);
+  sel.title = t ? `Juntando pontos em cada canal até ${fmt(t.cost)} para comprar ${BONUS_NAMES[t.kind]} de ${t.hours} h de uma vez.`
+    : 'Automático: todos os canais chegam ao XP, depois Capture Boost e Secret Lure. Ou escolha um pacote (tipo + horas) para juntar até o preço dele.';
+}
+
+
 function renderBonusBox() {
   const box = $('#bonus-box');
   box.replaceChildren();
@@ -302,7 +467,7 @@ function renderBonusBox() {
     chip.append(el('span', 'bonus-name', shortName(b.name)), el('span', 'bonus-left', on ? clock(b.endsAt - now) : 'inativo'));
     const add = el('button', 'bonus-add', '+1h');
     add.title = `Registrar uma compra de ${b.name} feita fora do app (o app percebe sozinho as compras pelo saldo)`;
-    add.onclick = async () => applyState(await window.kick.addPurchase(b.cost));
+    add.onclick = async () => applyState(await api.addPurchase(`${b.kind}:1`));
     chip.append(add);
     box.append(chip);
   }
@@ -310,19 +475,20 @@ function renderBonusBox() {
   if (recent.length) {
     const list = el('div', 'purchases');
     for (const p of recent) {
-      const name = (BONUS_NAMES[p.cost] || `${p.cost} pts`);
+      const name = (BONUS_NAMES[p.kind] || `${p.cost} pts`);
       const ch = state.channels.find((c) => c.slug === p.slug);
-      const row = el('div', 'purchase', `${shortName(name)} · ${ch ? ch.displayName : 'registrado à mão'} · ${timeStr(new Date(p.t))}`);
+      const row = el('div', 'purchase', `${shortName(name)} ${p.hours || 1}h (${p.source || "inferred"}) · ${ch ? ch.displayName : 'registrado à mão'} · ${timeStr(new Date(p.t))}`);
       const x = el('button', 'purchase-x', '✕');
       x.title = 'Não foi uma compra de bônus? Remove do cronômetro e do relatório';
-      x.onclick = async () => applyState(await window.kick.removePurchase(p.t));
+      x.onclick = async () => applyState(await api.removePurchase(p.t));
       row.append(x);
       list.append(row);
     }
     box.append(list);
   }
 }
-const BONUS_NAMES = { 300: '+15% XP', 500: '+15% Capture Boost', 1000: '+15% Secret Lure' };
+const KINDS=['xp','capture','lure'];
+const BONUS_NAMES = { xp: '+15% XP', capture: '+15% Capture Boost', lure: '+15% Secret Lure' };
 setInterval(() => { if (!$('#panel').hidden) renderBonusBox(); }, 20 * 1000);
 
 // ---------- Janela flutuante (relatório, antes de dormir, boas-vindas) ----------
@@ -334,9 +500,10 @@ function openModal(kind, ...nodes) {
   $('#modal').hidden = false;
 }
 function closeModal() {
-  if (modalKind === 'intro') window.kick.introDone().then(applyState);
+  if (modalKind === 'intro') api.introDone().then(applyState);
   modalKind = null;
   $('#modal').hidden = true;
+  $('#modal-card').replaceChildren();
 }
 $('#modal').onclick = (e) => { if (e.target.id === 'modal') closeModal(); };
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
@@ -345,35 +512,39 @@ const button = (text, cls, onclick) => { const b = el('button', cls, text); b.on
 // Antes de dormir: canais com pontos para o bônus escolhido; as lojas abrem uma de cada vez.
 const sleepPicked = new Set();
 function renderSleepList() {
-  const cost = state.bonusTarget || 300;
-  const name = BONUS_NAMES[cost];
-  const rich = state.channels.filter((c) => (c.points || 0) >= cost).sort((a, b) => b.points - a.points);
+  // Com um pacote escolhido, conta pacotes (ex.: 2× XP 3 h); no automático, XP de 1 h.
+  const [kind, h] = (state.bonusTarget || 'xp:1').split(':');
+  const hours = Number(h || 1);
+  const name = `${BONUS_NAMES[kind]}${hours > 1 ? ` (${hours} h)` : ''}`;
+  const costOf = c => (c.rewards || []).find(r => r.available && r.kind === kind && r.hours === hours)?.cost;
+  const rich = state.channels.filter(c => state.loggedIn && !state.sessionChecking && costOf(c) > 0
+    && (c.points || 0) >= costOf(c)).sort((a,b) => b.points / costOf(b) - a.points / costOf(a));
   for (const s of [...sleepPicked]) if (!rich.some((c) => c.slug === s)) sleepPicked.delete(s);
   const wrap = el('div', 'sleep');
   wrap.append(el('h3', null, '🌙 Antes de dormir'));
   const seq = state.storeSequence;
   if (seq) {
     wrap.append(el('p', null, `Loja ${seq.done} de ${seq.total} aberta. Compre o bônus e feche a janela da loja: a próxima abre sozinha.`),
-      button('Parar sequência', null, async () => applyState(await window.kick.cancelStoreSequence())));
+      button('Parar sequência', null, async () => applyState(await api.cancelStoreSequence())));
     return $('#modal-card').replaceChildren(wrap);
   }
   if (!rich.length) {
-    wrap.append(el('p', null, `Nenhum canal tem ${cost} pts para ${name} agora.`), button('Fechar', null, closeModal));
+    wrap.append(el('p', null, `Nenhum canal tem pontos para ${name} agora.`), button('Fechar', null, closeModal));
     return $('#modal-card').replaceChildren(wrap);
   }
-  const total = rich.reduce((t, c) => t + Math.floor(c.points / cost), 0);
-  wrap.append(el('p', null, `Dá para comprar ${total} × ${name} (${total} h de bônus). Escolha os canais e as lojas abrem uma de cada vez: você compra e fecha a janela, e a próxima aparece.`));
+  const total = rich.reduce((t, c) => t + Math.floor(c.points / costOf(c)), 0);
+  wrap.append(el('p', null, `Dá para comprar ${total}× ${name} (${total * hours} h de bônus), somando os canais. Escolha os canais e as lojas abrem uma de cada vez: você compra e fecha a janela, e a próxima aparece.`));
   const list = el('div', 'sleep-list');
   for (const c of rich) {
     const row = el('label', 'sleep-row');
     const cb = el('input'); cb.type = 'checkbox'; cb.checked = sleepPicked.has(c.slug);
     cb.onchange = () => { if (cb.checked) sleepPicked.add(c.slug); else sleepPicked.delete(c.slug); renderSleepList(); };
-    row.append(cb, el('span', null, c.displayName), el('span', 'sleep-pts', `${c.points.toLocaleString('pt-BR')} pts · ${Math.floor(c.points / cost)}×`));
+    row.append(cb, el('span', null, c.displayName), el('span', 'sleep-pts', `${fmt(c.points)} pts · ${fmt(costOf(c))} cada · ${Math.floor(c.points / costOf(c))}×`));
     list.append(row);
   }
   wrap.append(list);
   const go = button(`Abrir ${sleepPicked.size} loja${sleepPicked.size === 1 ? '' : 's'} em sequência`, 'primary', async () => {
-    applyState(await window.kick.openStoreSequence(state.channels.filter((c) => sleepPicked.has(c.slug)).map((c) => c.slug)));
+    applyState(await api.openStoreSequence(state.channels.filter((c) => sleepPicked.has(c.slug)).map((c) => c.slug)));
   });
   go.disabled = !sleepPicked.size;
   const all = button('Marcar todos', null, () => { for (const c of rich) sleepPicked.add(c.slug); renderSleepList(); });
@@ -385,19 +556,23 @@ function renderSleepList() {
 
 // Relatório da semana, com opção de salvar o card como imagem para postar.
 async function showReport() {
-  const r = await window.kick.getReport();
+  if (!state.loggedIn || state.sessionChecking) return;
+  const ticket = accountView.current(), revision = state.sessionRevision;
+  const current = () => accountView.isCurrent(ticket) && state.loggedIn && !state.sessionChecking && state.sessionRevision === revision;
+  const r = await api.getReport();
+  if (!r || !current()) return;
   const card = el('div', 'report');
   const head = el('div', 'report-head');
   head.append(el('span', 'brand', 'K'), el('b', null, ' Kickterino · minha semana'), el('span', 'report-date', new Date().toLocaleDateString('pt-BR')));
   const big = el('div', 'report-big');
   const stat = (value, label) => { const d = el('div', 'report-stat'); d.append(el('b', null, value), el('span', null, label)); return d; };
-  big.append(stat(r.gained.toLocaleString('pt-BR'), 'pontos ganhos'), stat(String(r.bought.reduce((t, b) => t + b.count, 0)), 'bônus comprados'),
+  big.append(stat(r.gained.toLocaleString('pt-BR'), 'pontos ganhos'), stat(String(r.bought.reduce((t, b) => t + b.count, 0)), 'horas compradas'),
     stat(`${r.bonusHours} h`, 'com bônus ativo'), stat(`${r.coverage}%`, 'do tempo com bônus'));
   const days = el('div', 'report-days');
   const max = Math.max(1, ...r.days.map((d) => d.gained));
   for (const d of r.days) {
     const col = el('div', 'report-day');
-    col.title = `${d.day}: ${d.gained} pts · ${d.bought.map((n, i) => `${n}× ${shortName(Object.values(BONUS_NAMES)[i])}`).join(', ')}`;
+    col.title = `${d.day}: ${d.gained} pts · ${d.bought.map((n, i) => `${n} h ${shortName(Object.values(BONUS_NAMES)[i])}`).join(', ')}`;
     const bar = el('i'); bar.style.height = `${Math.round((d.gained / max) * 100)}%`;
     const slot = el('div', 'report-bar'); slot.append(bar);
     col.append(el('small', null, d.gained ? d.gained.toLocaleString('pt-BR') : ''), slot, el('span', null, d.weekday.replace('.', '')));
@@ -413,14 +588,15 @@ async function showReport() {
   const line = el('div', 'report-timeline');
   line.title = 'Últimas 24 horas: verde = algum bônus ativo';
   for (const on of r.timeline) line.append(el('i', on ? 'on' : ''));
-  const bought = el('div', 'report-bought', r.bought.map((b) => `${b.count}× ${shortName(b.name)}`).join(' · ') + (r.channels ? ` · em ${r.channels} canais` : ''));
+  const bought = el('div', 'report-bought', r.bought.map((b) => `${b.count} h ${shortName(b.name)}`).join(' · ') + (r.channels ? ` · em ${r.channels} canais` : ''));
   card.append(head, big, el('h4', null, 'Pontos por dia'), days, el('h4', null, 'Bônus ativo por período'), periods,
     el('h4', null, 'Últimas 24 h'), line, bought);
   const actions = el('div', 'modal-actions');
   actions.append(button('💾 Salvar imagem', 'primary', async () => {
+    if (!current()) return;
     const rect = card.getBoundingClientRect();
-    const file = await window.kick.saveReport({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
-    if (file) actions.replaceChildren(el('span', 'saved', `Imagem salva em ${file}`), button('Fechar', null, closeModal));
+    const file = await api.saveReport({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+    if (file && current()) actions.replaceChildren(el('span', 'saved', `Imagem salva em ${file}`), button('Fechar', null, closeModal));
   }), button('Fechar', null, closeModal));
   openModal('report', card, actions);
 }
@@ -431,22 +607,18 @@ function showIntro(kind) {
   if (kind === 'welcome') {
     wrap.append(el('h3', null, 'Bem-vindo ao Kickterino 👋'));
     const steps = [
-      ['1. Faça login', 'Clique em Login Kick e entre com sua conta (e-mail, Google, Apple ou Discord).'],
+      ['1. Faça login', 'Clique em Entrar com a Kick e entre com sua conta (e-mail, Google, Apple ou Discord).'],
       ['2. Escolha seu bônus', 'Em Bônus, deixe Automático ou escolha XP, Capture Boost ou Secret Lure.'],
-      ['3. Acompanhe no painel', 'Em Pontos ▸ você vê o saldo de cada canal, a previsão do próximo bônus e quanto tempo falta no seu bônus ativo.'],
+      ['3. Acompanhe no painel', 'Em Bônus ▸ você vê o saldo de cada canal, a previsão do próximo bônus e quanto tempo falta no seu bônus ativo.'],
       ['4. Compre na loja', 'O ícone de pontos ao lado do chat abre a loja do canal. A compra é sempre feita por você.'],
     ];
     for (const [t, d] of steps) { const s = el('div', 'intro-step'); s.append(el('b', null, t), el('span', null, d)); wrap.append(s); }
   } else {
     wrap.append(el('h3', null, `Novidades da versão ${state.version} ✨`));
     const news = [
-      '⏱ Bônus ativos: o app percebe a compra pelo saldo, mostra quanto tempo falta e avisa 5 min antes de acabar.',
-      '🔮 Previsão: cada canal mostra em quanto tempo chega ao próximo bônus.',
-      '📊 Relatório da semana, com imagem pronta para compartilhar.',
-      '🌙 Modo antes de dormir (opcional): abre as lojas uma de cada vez para empilhar bônus.',
-      '★ Favoritos: ficam no começo das abas e avisam quando entram ao vivo.',
-      '🎉 Destaque e aviso quando alguém menciona você ou quando aparece um sorteio no chat.',
-      '🤝 Novos parceiros do PokeIdle entram sozinhos na sua lista.',
+      'Canais na lateral, com busca e favoritos; chat no centro e bônus à direita.',
+      'Opções de coleta, avisos e inicialização ficam na engrenagem de configurações.',
+      'Até quatro contas independentes: as outras continuam coletando enquanto você troca a conta exibida.',
     ];
     const ul = el('ul');
     for (const n of news) ul.append(el('li', null, n));
@@ -464,15 +636,22 @@ function chatAlert(slug, data, flags) {
   if (!state.notifyChat) return;
   const ch = state.channels.find((c) => c.slug === slug);
   const name = ch ? ch.displayName : slug;
-  const visible = document.hasFocus() && slug === active;
-  if (visible) return;
+  if (document.hasFocus() && slug === active) return;
   if (flags.giveaway && !flags.mention) {
     if (Date.now() - (lastGiveawayAlert.get(slug) || 0) < 5 * 60 * 1000) return;
     lastGiveawayAlert.set(slug, Date.now());
   }
-  const n = new Notification(flags.mention ? `${data.sender.username} mencionou você em ${name}` : `🎉 Sorteio no chat de ${name}`,
-    { body: String(data.content || '').replace(/\[emote:\d+:([^\]]*)\]/g, '$1').slice(0, 140), icon: '../build/icon.png' });
-  n.onclick = () => { window.focus(); select(slug); };
+  const ownerAccountId = accountView.accountId;
+  const accountName = state.username || ownerAccountId;
+  const title = flags.mention ? `${data.sender.username} mencionou você em ${name}` : `🎉 Sorteio no chat de ${name}`;
+  const n = new Notification(`${accountName} · ${title}`,
+    { body: String(data.content || '').replace(/\[emote:[^:]+:([^\]]*)\]/g, '$1').slice(0, 140), icon: '../build/icon.png' });
+  n.onclick = async () => {
+    window.focus();
+    const activation = selectAccount(ownerAccountId);
+    const ticket = accountView.current();
+    if (await activation && accountView.isCurrent(ticket) && state.channels.some(c => c.slug === slug)) select(slug);
+  };
 }
 
 // ---------- Comemorações: aviso na tela e confete ----------
@@ -523,41 +702,64 @@ function celebrate(prev, next) {
     if (lastBefore && p.t <= lastBefore.t) break;
     if (!prev.purchases) break;
     const ch = next.channels.find((c) => c.slug === p.slug);
-    toast(`⏱ +1h de ${BONUS_NAMES[p.cost] || 'bônus'}${ch ? ` (${ch.displayName})` : ''} no cronômetro`);
+    toast(`⏱ +${p.hours || 1}h de ${BONUS_NAMES[p.kind] || 'bônus'}${ch ? ` (${ch.displayName})` : ''} no cronômetro`);
   }
 }
 
 // ---------- Eventos ----------
-$('#btn-login').onclick = () => window.kick.showLogin();
-$('#btn-logout').onclick = async () => applyState(await window.kick.logout());
-$('#btn-refresh').onclick = async () => applyState(await window.kick.refresh());
-$('#farming').onchange = async (e) => applyState(await window.kick.setFarming(e.target.checked));
-$('#btn-limit').onclick = async () => applyState(await (state.limitTest ? window.kick.stopLimitTest() : window.kick.startLimitTest()));
-$('#autostart').onchange = async (e) => applyState(await window.kick.setAutostart(e.target.checked));
-$('#btn-quit').onclick = () => window.kick.quit();
-$('#notify-chat').onchange = async (e) => applyState(await window.kick.setNotifyChat(e.target.checked));
-$('#sleep-mode').onchange = async (e) => applyState(await window.kick.setSleepMode(e.target.checked));
+$('#btn-login').onclick = () => api.showLogin();
+$('#btn-logout').onclick = async () => applyState(await api.logout());
+$('#btn-refresh').onclick = async () => applyState(await api.refresh());
+$('#farming').onchange = async (e) => applyState(await api.setFarming(e.target.checked));
+$('#btn-limit').onclick = async () => applyState(await (state.limitTest ? api.stopLimitTest() : api.startLimitTest()));
+$('#autostart').onchange = async (e) => applyState(await api.setAutostart(e.target.checked));
+$('#btn-quit').onclick = () => api.quit();
+$('#notify-chat').onchange = async (e) => applyState(await api.setNotifyChat(e.target.checked));
+$('#sleep-mode').onchange = async (e) => applyState(await api.setSleepMode(e.target.checked));
 $('#btn-sleep').onclick = () => { openModal('sleep'); renderSleepList(); };
 $('#btn-report').onclick = showReport;
-$('#btn-fav').onclick = async () => active && applyState(await window.kick.toggleFavorite(active));
-$('#notify-bonus').onchange = async (e) => applyState(await window.kick.setNotifyBonus(e.target.checked));
-$('#rotation').onchange = async (e) => applyState(await window.kick.setRotation(e.target.checked));
-$('#bonus-target').onchange = async (e) => applyState(await window.kick.setBonusTarget(Number(e.target.value)));
-$('#low-quality').onchange = async (e) => applyState(await window.kick.setLowQuality(e.target.checked));
-$('#max-watchers').onchange = async (e) => applyState(await window.kick.setMaxWatchers(e.target.value));
-$('#btn-panel').onclick = () => {
-  const p = $('#panel');
-  p.hidden = !p.hidden;
-  $('#btn-panel').textContent = p.hidden ? 'Pontos ▸' : 'Pontos ◂';
+$('#btn-fav').onclick = async () => active && applyState(await api.toggleFavorite(active));
+$('#notify-bonus').onchange = async (e) => applyState(await api.setNotifyBonus(e.target.checked));
+$('#rotation').onchange = async (e) => applyState(await api.setRotation(e.target.checked));
+$('#bonus-target').onchange = async (e) => applyState(await api.setBonusTarget(e.target.value));
+$('#low-quality').onchange = async (e) => applyState(await api.setLowQuality(e.target.checked));
+$('#max-watchers').onchange = async (e) => applyState(await api.setMaxWatchers(e.target.value));
+const setPanel = (open) => {
+  $('#panel').hidden = !open;
+  $('#btn-panel').textContent = open ? 'Bônus ◂' : 'Bônus ▸';
+  try { localStorage.setItem('panelOpen', open ? '1' : '0'); } catch {}
 };
-$('#btn-points').onclick = () => active && window.kick.openStore(active);
-$('#btn-show').onclick = () => active && window.kick.showChannel(active);
+$('#btn-panel').onclick = () => setPanel($('#panel').hidden);
+try { setPanel(localStorage.getItem('panelOpen') !== '0'); } catch { setPanel(true); }
+const setSettings = open => {
+  $('#settings').hidden = !open;
+  $('#btn-settings').classList.toggle('on', open);
+  $('#btn-settings').setAttribute('aria-expanded', String(open));
+};
+$('#btn-settings').onclick = e => { e.stopPropagation(); setSettings($('#settings').hidden); };
+document.addEventListener('click', (e) => {
+  if (!$('#settings').hidden && !e.target.closest('#settings')) { setSettings(false); }
+});
+// Atalhos: Ctrl+K busca canal; Alt+↑/↓ troca de canal.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') setSettings(false);
+  if (e.ctrlKey && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#rail-search').focus(); $('#rail-search').select(); }
+  if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+    const cards = [...document.querySelectorAll('#tabs .ch')];
+    const order = cards.map((c) => c.dataset.slug);
+    const i = order.indexOf(active);
+    const next = order[(i + (e.key === 'ArrowDown' ? 1 : -1) + order.length) % order.length];
+    if (next) { e.preventDefault(); select(next); }
+  }
+});
+$('#btn-points').onclick = () => active && api.openStore(active);
+$('#btn-show').onclick = () => active && api.showChannel(active);
 $('#btn-remove').onclick = async () => {
   if (!active) return;
   const slug = active;
   buffers.delete(slug);
   active = null;
-  applyState(await window.kick.removeChannel(slug));
+  if (!applyState(await api.removeChannel(slug))) return;
   if (state.channels.length) select(state.channels[0].slug); else $('#messages').replaceChildren();
 };
 $('#composer').onsubmit = async (e) => {
@@ -567,13 +769,15 @@ $('#composer').onsubmit = async (e) => {
   const text = input.value.trim();
   if (!ch || !ch.chatroomId || !text) return;
   input.value = '';
-  const res = await window.kick.sendChat(ch.chatroomId, text);
-  if (!res.ok) pushMessage(ch.slug, systemMessage(`Falha ao enviar (${res.status}${res.message ? ': ' + res.message : ''}). Você fez login?`));
+  const res = await api.sendChat(ch.chatroomId, text);
+  if (res && !res.ok) pushMessage(ch.slug, systemMessage(`Falha ao enviar (${res.status}${res.message ? ': ' + res.message : ''}). Você fez login?`));
 };
 
-window.kick.onStatus(applyState);
-window.kick.onSelect((slug) => select(slug));
-window.kick.onChat(({ slug, kind, data }) => {
+api.onAccountSelect(selectAccount);
+api.onStatus(applyState);
+api.onSelect((slug, accountId) => { if (accountId === accountView.accountId) select(slug); });
+api.onChat(({ slug, kind, data }, accountId) => {
+  if (accountId !== accountView.accountId) return;
   if (kind === 'message') {
     const flags = chatFlags(data);
     pushMessage(slug, renderChat(data, flags));
@@ -581,4 +785,4 @@ window.kick.onChat(({ slug, kind, data }) => {
   }
   else if (kind === 'reward') pushMessage(slug, systemMessage(`🎁 ${data.username} resgatou "${data.reward_title}"`));
 });
-window.kick.getState().then((s) => { applyState(s); if (active) select(active); });
+api.getState().then((s) => { applyState(s); if (active) select(active); });
