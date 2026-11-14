@@ -38,6 +38,8 @@ function loadConfig() {
   firstRun = !fs.existsSync(configPath());
   try { config = { ...structuredClone(DEFAULT_CONFIG), ...JSON.parse(fs.readFileSync(configPath(), 'utf8')) }; } catch {}
   // Canais oficiais novos de uma versão nova entram uma vez; os que a pessoa removeu não voltam.
+  // A coleta começa ao abrir o app, inclusive para perfis pausados em versões antigas.
+  config.farming = true;
   const seen = new Set(config.seenDefaults || config.channels);
   for (const slug of DEFAULT_CONFIG.channels) {
     if (!seen.has(slug) && !config.channels.includes(slug)) config.channels.push(slug);
@@ -612,6 +614,7 @@ async function refreshChannel(slug) {
     s.viewers = json.livestream ? json.livestream.viewer_count : 0;
     s.title = json.livestream ? json.livestream.session_title : '';
     s.displayName = (json.user && json.user.username) || slug;
+    s.avatar = json.user?.profile_pic || null;
     s.error = null;
   } catch (e) {
     s.error = String(e.message || e);
@@ -932,7 +935,7 @@ function snapshot() {
       const s = status.get(slug) || {};
       const watchedMs = (s.watchedMs || 0) + (s.watchingSince ? now - s.watchingSince : 0);
       return {
-        slug, displayName: s.displayName || slug, live: !!s.live, viewers: s.viewers || 0,
+        slug, displayName: s.displayName || slug, avatar: s.avatar || null, live: !!s.live, viewers: s.viewers || 0,
         title: s.title || '', chatroomId: loggedIn ? s.chatroomId || null : null, points: loggedIn ? s.points ?? null : null,
         watching: watchers.has(slug), ageGate: !!s.ageGate, earning: earningState(slug, now),
         following: loggedIn ? s.following ?? null : null, subscribed: loggedIn && !!s.subscribed,

@@ -14,6 +14,16 @@ let state = { channels: [], farming: true, maxWatchers: 2 };
 let active = null;
 const buffers = new Map();   // slug -> array de elementos .msg
 const unread = new Set();
+const accountCards = AccountCards.create({
+  container: $('#accounts'),
+  onSelect: selectAccount,
+  onConnect: async id => { if (await selectAccount(id)) await api.showLogin(); },
+  onDisconnect: async id => {
+    await window.kick.logoutAccount(id);
+    applyState(await api.getState());
+  },
+  onError: () => toast('Não foi possível alterar esta conta. Tente novamente.'),
+});
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -111,7 +121,6 @@ function avatar(ch, size = '') {
 
 function pendingPlaybackLabel() {
   if (state.sessionChecking) return 'VERIFICANDO SESSÃO';
-  if (!state.farming) return 'PAUSADO';
   if (!state.loggedIn) return 'ENTRAR';
   return state.rotation ? 'NA FILA' : 'SEM VAGA';
 }
@@ -200,29 +209,65 @@ function select(slug) {
 }
 
 function renderPriceBar(ch) {
-  const bar=$('#price-bar');bar.replaceChildren();if(!ch)return;
-  if(ch.catalog?.state!=='known'){bar.append(el('span',null,'Preços estimados · catálogo indisponível'));return;}
-  if(!ch.hasBonus){bar.append(el('span',null,'Bônus indisponíveis neste canal'));return;}
-  for(const kind of KINDS){const list=(ch.rewards||[]).filter(r=>r.kind===kind);if(!list.length)continue;
-    const chip=el('span','price-chip',`${shortName(BONUS_NAMES[kind])}: ${list.map(r=>`${r.hours}h ${fmt(r.cost)}${r.available?'':' (pausado)'}`).join(' · ')}`);bar.append(chip);}
-  if(state.bonusTarget)bar.append(el('span','price-chip',`Meta: ${fmt(ch.targetCost)} pts${ch.targetEstimated?' (estimativa)':''}`));
+  const bar = $('#price-bar');
+  bar.replaceChildren();
+  if (!ch) return;
+  if (ch.catalog?.state !== 'known') { bar.append(el('span', 'price-none', 'Preços estimados · catálogo indisponível')); return; }
+    if (!ch.hasBonus) { bar.append(el('span', 'price-none', 'Bônus indisponíveis neste canal')); return; }
+  bar.append(el('span', 'price-label', 'Preços aqui:'));
+  // Pacote escolhido em "Bônus" aparece primeiro, com quanto falta neste canal.
+  const [tk, th] = (state.bonusTarget || '').split(':');
+  if (tk) {
+    const hours = Number(th || 1);
+    const chip = el('span', 'price-chip target' + (!ch.targetEstimated && ch.points != null && ch.points >= ch.targetCost ? ' ok' : ''));
+    const left = ch.points != null ? Math.max(0, ch.targetCost - ch.points) : null;
+    chip.append(el('b', null, `🎯 ${shortName(BONUS_NAMES[tk])}${hours > 1 ? ` ${hours}h` : ''}`), ` ${fmt(ch.targetCost)}`,
+      ch.targetEstimated ? el('small', null, ' · estimativa') : left != null ? el('small', null, left ? ` · faltam ${fmt(left)}` : ' · já dá!') : '');
+    chip.title = 'Pacote escolhido em Bônus';
+    bar.append(chip);
+  }
+  for (const k of KINDS) {
+    const list = ch.rewards.filter((r) => r.kind === k && r.available).sort((a, b) => a.hours - b.hours);
+    if (!list.length) continue;
+    const chip = el('span', 'price-chip' + (ch.points != null && ch.points >= list[0].cost ? ' ok' : ''));
+    chip.append(el('b', null, `${shortName(BONUS_NAMES[k])}${list[0].hours > 1 ? ` ${list[0].hours}h` : ''}`), ` ${fmt(list[0].cost)}`);
+    chip.title = list.map((r) => `${r.hours} h: ${fmt(r.cost)} pts`).join('\n');
+    bar.append(chip);
+  }
+  if (ch.priceChange) { const w = el('span', 'price-changed', '⚠ preço mudou'); w.title = ch.priceChange; bar.append(w); }
 }
+
 function renderHeader() {
   const ch = state.channels.find((c) => c.slug === active);
-  renderPriceBar(ch);
   const title = $('#chat-title');
   title.replaceChildren();
   const fav = !!ch && (state.favorites || []).includes(ch.slug);
   $('#btn-fav').textContent = fav ? '★' : '☆';
   $('#btn-fav').classList.toggle('on', fav);
+  renderPriceBar(ch);
+  for (const button of $('#chat-actions').children) button.disabled = !ch;
   if (!ch) return;
-  title.append(el('b', null, ch.displayName), ch.live ? ` · AO VIVO · ${ch.viewers} · ${ch.title}` : ' · offline');
+  const info = el('div', 'hero-text');
+  const line = el('div', 'hero-name');
+  line.append(el('b', null, ch.displayName));
+  if (ch.live) line.append(el('span', 'live-tag', 'AO VIVO'), el('span', 'hero-viewers', `👁 ${ch.viewers.toLocaleString('pt-BR')}`));
+  else line.append(el('span', 'off-tag', 'offline'));
+  if (ch.subscribed) line.append(subBadge());
+  if (ch.following) {
+    const follow = el('span', 'follow', '♥');
+    follow.title = 'Você segue este canal';
+    line.append(follow);
+  }
+  const subtitle = el('div', 'hero-title', ch.live ? ch.title : 'O chat continua aberto enquanto o canal está offline');
+  subtitle.title = subtitle.textContent;
+  info.append(line, subtitle);
   if (ch.ageGate) {
     const warn = el('button', 'age-gate', '⚠ Canal +18: clique para confirmar a idade');
     warn.title = 'A Kick pede confirmação de idade antes de tocar esta live. Sem isso, ela não conta pontos.';
     warn.onclick = () => api.showChannel(ch.slug);
-    title.prepend(warn, ' ');
+    info.append(warn);
   }
+  title.append(avatar(ch, 'big'), info);
   $('#input').placeholder = ch.chatroomId ? `Enviar mensagem em ${ch.displayName}…` : 'Carregando canal…';
   const pts = $('#points-val');
   const text = ch.points != null ? ch.points.toLocaleString('pt-BR') : '—';
@@ -329,27 +374,14 @@ function renderPanel() {
 }
 
 function renderAccounts() {
-  const nav = $('#accounts');
   const accounts = state.accounts || Array.from({length: 4}, (_, index) => ({id: `account-${index + 1}`, label: `Conta ${index + 1}`}));
-  for (const account of accounts) {
-    let button = nav.querySelector(`[data-account-id="${account.id}"]`);
-    if (!button) {
-      button = el('button', 'account-tab'); button.type = 'button';
-      button.dataset.accountId = account.id;
-      button.onclick = () => selectAccount(account.id);
-      nav.append(button);
-    }
-    const selected = account.id === accountView.accountId;
-    button.classList.toggle('active', selected);
-    button.setAttribute('aria-pressed', String(selected));
-    const detail = account.sessionChecking ? 'Verificando sessão…' : !account.loggedIn ? 'Conectar Kick'
-      : !account.farming ? 'Coleta pausada' : `${account.watching} lives · +${fmt(account.today || 0)} pts hoje`;
-    button.replaceChildren(el('b', null, account.username || account.label), el('small', null, detail));
-    button.title = `${account.label}${account.username ? ': ' + account.username : ''} — ${detail}`;
-  }
+  accountCards.render(accounts.map(account => ({ ...account,
+    detail: `${account.watching} lives · +${fmt(account.today || 0)} pts hoje`,
+  })), accountView.accountId);
 }
 
 async function selectAccount(id) {
+  accountCards.closeMenu();
   const previous = accountView.accountId;
   if (id === previous) return true;
   const ticket = accountView.select(id);
@@ -359,7 +391,7 @@ async function selectAccount(id) {
   setSettings(false); railFilter = ''; $('#rail-search').value = '';
   buffers.clear(); unread.clear(); sleepPicked.clear(); active = null;
   $('#messages').replaceChildren(); $('#input').value = ''; $('#toasts').replaceChildren();
-  state = { channels: [], accounts: state.accounts, farming: false, accountId: id };
+  state = { channels: [], accounts: state.accounts, farming: true, accountId: id };
   renderAccounts(); renderTabs(); renderHeader(); renderPanel();
   try {
     const next = await api.selectAccount(id);
@@ -388,7 +420,6 @@ function applyState(s) {
     if (was === true && !ch.live) pushMessage(ch.slug, systemMessage(`${ch.displayName} está offline.`));
   }
   if (!active && state.channels.length) active = state.channels[0].slug;
-  $('#farming').checked = state.farming;
   $('#low-quality').checked = state.lowQuality;
   $('#rotation').checked = state.rotation;
   renderTargetSelect();
@@ -405,9 +436,6 @@ function applyState(s) {
   if (state.intro && !introShown) { introShown = true; showIntro(state.intro); }
   if (!$('#modal').hidden && modalKind === 'sleep') renderSleepList();
   $('#memory').textContent = state.memoryMB ? `${state.memoryMB} MB` : '';
-  $('#btn-login').textContent = state.loggedIn ? 'Conectado ✓' : 'Login Kick';
-  $('#btn-login').classList.toggle('ok', !!state.loggedIn);
-  $('#btn-logout').hidden = !state.loggedIn;
   if (document.activeElement !== $('#max-watchers')) $('#max-watchers').value = state.maxWatchers;
   renderTabs();
   renderHeader();
@@ -707,10 +735,7 @@ function celebrate(prev, next) {
 }
 
 // ---------- Eventos ----------
-$('#btn-login').onclick = () => api.showLogin();
-$('#btn-logout').onclick = async () => applyState(await api.logout());
 $('#btn-refresh').onclick = async () => applyState(await api.refresh());
-$('#farming').onchange = async (e) => applyState(await api.setFarming(e.target.checked));
 $('#btn-limit').onclick = async () => applyState(await (state.limitTest ? api.stopLimitTest() : api.startLimitTest()));
 $('#autostart').onchange = async (e) => applyState(await api.setAutostart(e.target.checked));
 $('#btn-quit').onclick = () => api.quit();

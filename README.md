@@ -1,6 +1,6 @@
 # Kickterino
 
-Cliente de chat para a Kick no estilo do [Chatterino](https://chatterino.com/), feito para a comunidade do PokeIdle. Ele mantém 2 lives em segundo plano, com o mínimo de memória e internet, para acumular pontos do canal e comprar bônus.
+Cliente de chat para a Kick no estilo do [Chatterino](https://chatterino.com/), feito para a comunidade do PokeIdle. Ele mantém 2 lives em segundo plano, com o mínimo de memória e internet, para acumular pontos do canal e comprar bônus. A coleta começa automaticamente ao abrir o app com uma conta conectada, inclusive para perfis que estavam pausados em versões anteriores.
 
 Fork independente de manutenção de [ViinniSantoos/kickterino](https://github.com/ViinniSantoos/kickterino), criado por VinniiSaantos. Licença e histórico MIT preservados.
 

@@ -52,16 +52,22 @@ async function open(child) {
   const ui = await connect(target.webSocketDebuggerUrl); connections.add(ui); await ui.call('Runtime.enable');
   await until(async () => {
     const state = await evaluate(ui, 'window.kick && window.kick.getState()');
-    return state?.accounts?.length === 4 && await evaluate(ui, 'document.querySelectorAll("#accounts button").length === 4');
+    return state?.accounts?.length === 4 && await evaluate(ui, 'document.querySelectorAll("#accounts .account-card > .account-tab").length === 4');
   }, 'Four account controls');
+  assert.equal((await targets()).filter(t => t.type === 'page' && t.url.startsWith('https://kick.com/')).length, 0, 'Login windows must remain lazy before an explicit login request');
   return {child, ui, targets};
 }
 async function select(client, index) {
   const id = 'account-' + index;
-  await evaluate(client.ui, `document.querySelector('[data-account-id="${id}"]').click()`);
+  // Empty account cards deliberately start login. The existing renderer handler
+  // keeps its view guard and the public preload selection in sync; login is
+  // tested separately with showLogin below.
+  await evaluate(client.ui, `selectAccount(${JSON.stringify(id)})`);
   return until(async () => {
     const state = await evaluate(client.ui, 'window.kick.getState()');
-    assertAccountReady(state, id); return state;
+    assertAccountReady(state, id);
+    assert.equal(await evaluate(client.ui, 'document.querySelector("#accounts .account-card.active").dataset.accountId'), id);
+    return state;
   }, 'Account ' + index + ' metadata/defaults', 65000);
 }
 async function openSession(client, boundIds = new Set()) {
@@ -87,6 +93,7 @@ async function markers(api) {
   try {
     assert(fs.existsSync(executable), 'Missing packaged executable');
     current = await open(launch(await freePort()));
+    report.checks.push('no login renderer before an explicit login request');
     const apis = [];
     for (let index = 1; index <= 4; index++) {
       await select(current, index);

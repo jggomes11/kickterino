@@ -7,18 +7,15 @@
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="features.css">
   <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="account-cards.css">
 </head>
 <body>
   <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
 
   <header id="toolbar">
     <div class="logo"><span class="brand">K</span><span class="brand-name">Kickterino</span></div>
-    <label class="switch" title="Liga ou pausa as lives ocultas que juntam pontos">
-      <input type="checkbox" id="farming"><span class="switch-ui"></span><span class="switch-text">Juntar pontos</span>
-    </label>
     <label class="target" title="Meta e pacote de bônus">🎯 <select id="bonus-target"><option value="">Automático</option></select></label>
     <div id="summary"></div>
-    <button id="btn-login" title="Abre a Kick para você fazer login (uma vez só)">Entrar com a Kick</button>
     <button id="btn-settings" class="icon" title="Configurações" aria-label="Configurações" aria-controls="settings" aria-expanded="false">⚙</button>
     <button id="btn-panel" class="icon wide" title="Painel de pontos e bônus">Bônus ▸</button>
   </header>
@@ -39,7 +36,6 @@
     <label class="toggle"><input type="checkbox" id="sleep-mode"> <span><b>Modo antes de dormir</b><small>Botão que abre as lojas uma de cada vez. Desligado por padrão.</small></span></label>
     <div class="settings-foot">
       <button id="btn-refresh">↻ Atualizar agora</button>
-      <button id="btn-logout" hidden>Sair da conta</button>
       <button id="btn-quit" hidden>Fechar o app</button>
       <span id="memory" title="Memória total usada pelo Kickterino"></span>
     </div>
@@ -54,10 +50,10 @@
     <main>
       <section id="chat-col">
         <div id="chat-header">
-          <span id="chat-title"></span>
+          <div id="chat-title"></div>
           <span id="chat-actions">
             <button id="btn-fav" class="icon" title="Fixar: o canal fica no topo da lista e você recebe um aviso quando ele entrar ao vivo">☆</button>
-            <button id="btn-show" title="Mostra o player com som. Juntar pontos inicia a coleta automaticamente em segundo plano.">▶ Mostrar player</button>
+            <button id="btn-show" title="Mostra o player com som. A coleta já acontece automaticamente em segundo plano."><svg viewBox="0 0 12 12" width="11" height="12" aria-hidden="true"><path d="M2 1l8 5-8 5z" fill="currentColor"/></svg>Mostrar player</button>
             <button id="btn-remove" class="icon" title="Remover canal">✕</button>
           </span>
         </div>
@@ -98,6 +94,7 @@
   <canvas id="confetti"></canvas>
 
   <script src="../security/account-view.js"></script>
+  <script src="account-cards.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
