@@ -1,6 +1,6 @@
 # Ensaio experimental Kickterino
 
-Este pacote 0.3.2-beta.1 é experimental, sem assinatura e identificado pelo commit em build-info.json. Não há ainda medição real antes/depois do Kick. Os números da Twitch não são baseline do Kick.
+Este pacote 0.3.2 é experimental, sem assinatura e identificado pelo commit em build-info.json. Não há ainda medição real antes/depois do Kick. Os números da Twitch não são baseline do Kick.
 
 Extraia o pacote e execute `./Start-WindowsValidation.ps1`. O launcher verifica os hashes de todos os arquivos e usa perfil isolado em LOCALAPPDATA/ChannelClientValidation/kickterino/<12 primeiros caracteres do commit>. Novos slots começam pausados; perfis existentes não são sobrescritos. Faça login nas janelas oficiais de cada conta desejada.
 
