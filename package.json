@@ -1,7 +1,7 @@
 {
   "name": "kickterino",
   "productName": "Kickterino",
-  "version": "0.3.2-beta.1",
+  "version": "0.3.2",
   "description": "Cliente multi-chat da Kick (estilo Chatterino) que mant\u00e9m voc\u00ea assistindo v\u00e1rias lives para acumular pontos do canal.",
   "author": "VinniiSaantos",
   "license": "MIT",

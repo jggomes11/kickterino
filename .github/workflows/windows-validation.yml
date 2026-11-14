@@ -1,6 +1,8 @@
 name: Windows validation
 
 on:
+  push:
+    tags: ['v[0-9]*']
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
@@ -10,6 +12,22 @@ on:
         type: choice
         options: [windows-2025, windows-2022]
         default: windows-2025
+      release:
+        description: Build the Windows installer release candidate
+        type: boolean
+        default: false
+      publish_release:
+        description: Publish verified release assets (main branch only, requires release)
+        type: boolean
+        default: false
+      upload_preview:
+        description: Upload this verified build to an existing preview draft
+        type: boolean
+        default: false
+      preview_tag:
+        description: Existing prerelease draft tag (must target this exact source)
+        type: string
+        default: v0.1.3-rc.3
 
 permissions:
   contents: read
@@ -25,15 +43,29 @@ jobs:
     timeout-minutes: 25
     env:
       VALIDATION_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      BUILD_RELEASE: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.release) || false }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           cache: npm
+      - name: Verify stable tag matches package and main history
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const assert = require('node:assert/strict');
+          const {execFileSync} = require('node:child_process');
+          const version = require('./package.json').version;
+          assert(/^\d+\.\d+\.\d+$/.test(version), 'Expected stable version');
+          assert.equal(process.env.GITHUB_REF_NAME, 'v' + version, 'Tag/package mismatch');
+          execFileSync('git', ['merge-base', '--is-ancestor', 'HEAD', 'origin/main'], {stdio:'inherit'});
+          NODE
       - name: Install locked dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
       - name: Install the pinned Electron runtime
@@ -56,11 +88,12 @@ jobs:
       - name: Package Windows without publishing
         id: package
         run: |
-          npm run dist -- --dir --publish never
+          if ($env:BUILD_RELEASE -eq 'true') { node scripts/package-windows-release.cjs }
+          else { npm run dist -- --dir --publish never }
       - name: Validate packaged UI and official login navigation
         run: node scripts/validate-desktop.cjs
       - name: Validate four account partitions in one application
-        if: success()
+        if: success() && env.BUILD_RELEASE != 'true'
         timeout-minutes: 5
         run: node scripts/validate-accounts.cjs dist/win-unpacked/Kickterino.exe validation-output/evidence/account-validation.json
       - name: Prepare isolated manual validation bundle
@@ -95,12 +128,93 @@ jobs:
           New-Item -ItemType Directory -Path $ProbeProfile -Force | Out-Null
           try { ./validation-output/Start-WindowsValidation.ps1 -CheckOnly -ProfileCommit '000000000000' }
           finally { Remove-Item -LiteralPath $ProbeProfile -Force }
+      - name: Prepare Windows release candidates
+        if: success() && env.BUILD_RELEASE == 'true'
+        run: |
+          if (-not (Test-Path release-output/release-build-info.json)) { throw 'Missing release candidate metadata' }
+      - name: Validate account isolation in the Windows build
+        if: success() && env.BUILD_RELEASE == 'true'
+        timeout-minutes: 5
+        run: node scripts/validate-accounts.cjs
+      - name: Preserve packaged UI evidence with release candidates
+        if: success() && env.BUILD_RELEASE == 'true'
+        shell: pwsh
+        run: Copy-Item validation-output/evidence/desktop-result.json release-output/desktop-result.json
+      - name: Calculate installer checksum
+        if: success() && env.BUILD_RELEASE == 'true'
+        run: |
+          Get-ChildItem release-output -File | Where-Object { $_.Extension -eq '.exe' } | Sort-Object Name | ForEach-Object {
+            $ReleaseHash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$ReleaseHash  $($_.Name)"
+          } | Set-Content -Encoding ascii release-output/SHA256SUMS.txt
+      - name: Preserve verified Windows release candidates
+        if: success() && env.BUILD_RELEASE == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-release-${{ github.sha }}
+          path: |
+            release-output/*.exe
+            release-output/*.txt
+            release-output/*.json
+          retention-days: 7
+          if-no-files-found: error
       - name: Preserve Windows evidence and validation build
+        # The launcher checks hashes without opening another GUI during CI.
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: kickterino-windows-validation-${{ github.event.pull_request.head.sha || github.sha }}
+          name: windows-validation-${{ github.event.pull_request.head.sha || github.sha }}
           path: validation-output/
           retention-days: 3
           include-hidden-files: true
           if-no-files-found: warn
+
+  publish-release:
+    needs: windows
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release && inputs.publish_release && !inputs.upload_preview)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download candidates from this successful Windows run
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "windows-release-$GITHUB_SHA" --dir release-output
+      - name: Verify source identity and asset checksums
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re
+          root = pathlib.Path('release-output')
+          package = json.loads(pathlib.Path('package.json').read_text())
+          info = json.loads((root / 'release-build-info.json').read_text())
+          version = package['version']
+          assert re.fullmatch(r'\d+\.\d+\.\d+', version), 'Expected stable release version'
+          assert info['sourceSha'] == os.environ['GITHUB_SHA'], 'Unexpected candidate source'
+          assert info['version'] == version and info['accounts'] == 4 and info['applicationWindows'] == 1 and info['distribution'] == 'nsis-installer'
+          native = json.loads((root / 'account-validation.json').read_text())
+          assert native['passed'] is True and native['sourceSha'] == os.environ['GITHUB_SHA']
+          desktop = json.loads((root / 'desktop-result.json').read_text())
+          assert desktop['passed'] is True and desktop['sourceSha'] == os.environ['GITHUB_SHA']
+          expected = {'Kickterino-Setup.exe'}
+          seen = set()
+          for line in (root / 'SHA256SUMS.txt').read_text().splitlines():
+              digest, name = line.split('  ', 1)
+              assert name in expected and name not in seen, 'Unexpected or duplicate release asset'
+              assert hashlib.file_digest((root / name).open('rb'), 'sha256').hexdigest() == digest, 'Asset checksum mismatch'
+              seen.add(name)
+          assert seen == expected, 'Missing release asset'
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'RELEASE_VERSION={version}\nRELEASE_TAG=v{version}\n')
+          print('Verified installer and source identity.')
+          PY
+      - name: Create draft, upload verified assets and publish
+        run: |
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Kickterino $RELEASE_VERSION" --notes-file "docs/releases/v$RELEASE_VERSION.pt-BR.md" --draft
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" release-output/Kickterino-Setup.exe release-output/SHA256SUMS.txt release-output/release-build-info.json release-output/account-validation.json release-output/desktop-result.json
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
