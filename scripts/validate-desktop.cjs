@@ -26,7 +26,7 @@ fs.mkdirSync(output, { recursive: true });
 const defaults = require('./validation-config.cjs')(root, pkg.version, { watchAll: false });
 const channels = defaults.channels;
 fs.writeFileSync(path.join(profile, 'config.json'), JSON.stringify(defaults));
-// The anonymous-player fixture must start all other slots paused as well.
+// Keep the anonymous-player fixture's four slots on the automatic collection default.
 for (let index = 2; index <= 4; index++) {
   const directory = path.join(profile, 'accounts', 'account-' + index);
   fs.mkdirSync(directory, {recursive: true});

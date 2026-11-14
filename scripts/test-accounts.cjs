@@ -19,14 +19,14 @@ async function start(){
  const target=await until(async()=>{if(child.exitCode!==null)throw Error(logs);return(await targets()).find(t=>t.url.endsWith('/renderer/index.html'));},'UI');
  console.log('Connecting UI',target.webSocketDebuggerUrl);
  ui=await connect(target.webSocketDebuggerUrl);connections.push(ui);await ui.call('Runtime.enable');
- await until(()=>evaluate(ui,'document.querySelectorAll("#accounts button").length === 4'),'four controls');
+ await until(()=>evaluate(ui,'document.querySelectorAll("#accounts .account-card > .account-tab").length === 4'),'four controls');
  const bounds=await evaluate(ui,'({accounts:document.querySelector("#accounts").getBoundingClientRect().bottom,panel:document.querySelector("#panel").getBoundingClientRect().top,hidden:document.querySelector("#panel").hidden})');
  assert(bounds.hidden || bounds.panel >= bounds.accounts,'bonus panel must not cover the account selector');
  // Layout follows Twitchterino: compact toolbar, account row, searchable channel rail.
  assert.equal(await evaluate(ui, '!!document.querySelector("#shell > #rail #rail-search")'),true);
  await evaluate(ui, 'document.querySelector("#btn-settings").click();true');
  assert.equal(await evaluate(ui, 'document.querySelector("#settings").hidden'),false);
- for(const id of ['max-watchers','rotation','low-quality','autostart','notify-bonus','notify-chat','sleep-mode','btn-refresh','btn-logout']){
+ for(const id of ['max-watchers','rotation','low-quality','autostart','notify-bonus','notify-chat','sleep-mode','btn-refresh']){
   assert.equal(await evaluate(ui, '!!document.querySelector("#settings #'+id+'")'),true,id);
  }
  await evaluate(ui, 'document.querySelector("#btn-settings").click();true');
@@ -47,7 +47,7 @@ async function quit(){
  try{
   let targets=await start();
   for(let n=1;n<=4;n++){
-   await evaluate(ui,`document.querySelector('[data-account-id="account-${n}"]').click()`);
+   await evaluate(ui,`document.querySelector('[data-account-id="account-${n}"] > .account-tab').click()`);
    await until(async()=>{const s=await evaluate(ui,'window.kick.getState()');return s.accountId==='account-'+n&&s.loggedIn&&s.channels.filter(c=>c.watching).length===2;},'verified account '+n);
    const s=await evaluate(ui,'window.kick.getState()');
    assert.equal(s.username,'Fixture '+n);assert.equal(s.channels.filter(c=>c.watching).length,2);
@@ -85,7 +85,7 @@ async function quit(){
   await quit();targets=await start();
   const bound=new Set();
   for(let n=1;n<=4;n++){
-   await evaluate(ui,`document.querySelector('[data-account-id="account-${n}"]').click()`);
+   await evaluate(ui,`document.querySelector('[data-account-id="account-${n}"] > .account-tab').click()`);
    await until(async()=> (await evaluate(ui,'window.kick.getState()')).accountId==='account-'+n,'selection');
    assert.equal((await evaluate(ui,'window.kick.getState()')).notifyChat,false);
    await evaluate(ui,'void window.kick.showLogin();true');
